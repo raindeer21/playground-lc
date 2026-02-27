@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from app.agent import AgentRuntime
 
@@ -51,3 +52,41 @@ def test_log_conversation_writes_jsonl(tmp_path) -> None:
     assert payload["messages"] == messages
     assert payload["response"] == response
     assert "timestamp" in payload
+
+
+def test_chat_returns_direct_response_when_llm_emits_no_tool_calls() -> None:
+    runtime = AgentRuntime.__new__(AgentRuntime)
+
+    class _DummySkillStore:
+        def headers(self):
+            return []
+
+    class _DummyLLM:
+        def invoke(self, _history):
+            from langchain_core.messages import AIMessage
+
+            return AIMessage(content="direct answer", tool_calls=[])
+
+    import logging
+
+    runtime.skill_store = _DummySkillStore()
+    runtime.llm = _DummyLLM()
+    runtime._logger = logging.getLogger(__name__)
+    runtime.conversation_log_path = Path('/tmp/test_agent_conversations.jsonl')
+
+    response = runtime.chat([{"role": "user", "content": "hello"}], max_steps=1)
+
+    assert response["message"] == "direct answer"
+    assert response["steps"] == []
+
+
+def test_langchain_tools_excludes_respond_to_user() -> None:
+    class _DummySkillStore:
+        def get(self, _skill_id):
+            return None
+
+    from app.tools import AgentTools
+
+    tool_names = [tool.name for tool in AgentTools(_DummySkillStore()).langchain_tools()]
+
+    assert "respond_to_user" not in tool_names
