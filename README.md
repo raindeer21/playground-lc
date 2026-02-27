@@ -10,6 +10,7 @@ This project implements a LangChain-powered agent runtime with a **chat completi
 - A `get_skills` tool provides **full SKILL.md content on demand**.
 - The model is configured with `tool_choice="required"` to force function-calling behavior.
 - `respond_to_user` tool is required to end a run.
+- Conversations are logged to `logs/agent_conversations.jsonl` for auditing/debugging.
 - Tools are implemented as standalone functions and composed via a dedicated `AgentTools` class.
 - `web_request` tool supports controlled HTTP requests.
 
