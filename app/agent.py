@@ -115,7 +115,7 @@ class AgentRuntime:
                 "- ask one focused follow-up question when key constraints are missing or ambiguous, proactively gather information from"
                 "- verify and compare candidate listings across dimensions (commute, price-performance, amenities, facilities, risk), "
                 "- return practical recommendations with clear pros/cons, and "
-                "- cap final recommended candidates to at most 5 listings.\n\n"
+                "- cap final recommended candidates to at most 5 listings, and when a property-find request is completed call provide_property_result_list with the final house_ids.\n\n"
                 f"Available skills:\n{json.dumps(headers, indent=2)}"
             )
         )

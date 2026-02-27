@@ -14,6 +14,32 @@ class _DummyRuntime:
         }
 
 
+
+
+class _PropertyResultRuntime:
+    def chat(self, _messages):
+        return {
+            "message": "done",
+            "steps": [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "name": "provide_property_result_list",
+                            "args": {
+                                "message": "为您找到以下符合条件的房源：",
+                                "houses": ["HF_4", "HF_6", "HF_277"],
+                            },
+                        }
+                    ],
+                },
+                {
+                    "type": "tool_result",
+                    "content": '{"message":"为您找到以下符合条件的房源：","houses":["HF_4","HF_6","HF_277"]}',
+                },
+            ],
+        }
+
 class _ErrorRuntime:
     def chat(self, _messages):
         return {"error": "Agent hit max_steps without calling respond_to_user."}
@@ -113,3 +139,21 @@ def test_agent_chat_error_shape(monkeypatch) -> None:
     assert payload["session_id"] == "abc124"
     assert payload["status"] == "error"
     assert payload["tool_results"] == []
+
+
+def test_agent_chat_returns_property_result_when_tool_called(monkeypatch) -> None:
+    from app import main
+
+    monkeypatch.setattr(main, "runtime", _PropertyResultRuntime())
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/v1/chat",
+        json={"model_ip": "127.0.0.1", "session_id": "abc125", "message": "帮我找房"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert payload["message"] == "为您找到以下符合条件的房源："
+    assert payload["houses"] == ["HF_4", "HF_6", "HF_277"]
