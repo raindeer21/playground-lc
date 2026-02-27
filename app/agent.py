@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
@@ -26,6 +27,8 @@ class AgentRuntime:
         self._logger = logging.getLogger(__name__)
         self.llm = ChatOpenAI(
             model=model,
+            temperature=0,
+            http_client=httpx.Client(trust_env=False),
             base_url="http://api.openai.rnd.huawei.com/v1/",
             api_key="sk-1234",
             temperature=0
