@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections import defaultdict
@@ -61,6 +62,25 @@ def _extract_tool_results(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return tool_results
 
 
+def _extract_property_result(tool_results: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for item in reversed(tool_results):
+        if item.get("name") != "provide_property_result_list":
+            continue
+        try:
+            parsed = item.get("output")
+            if isinstance(parsed, str):
+                payload = json.loads(parsed)
+            elif isinstance(parsed, dict):
+                payload = parsed
+            else:
+                continue
+            if isinstance(payload, dict) and isinstance(payload.get("houses", []), list):
+                return payload
+        except Exception:
+            continue
+    return None
+
+
 @app.post("/v1/chat/completions")
 def chat_completions(request: ChatCompletionRequest):
     logger.info("Incoming /v1/chat/completions request with %s message(s)", len(request.messages))
@@ -116,14 +136,21 @@ def agent_chat(request: AgentChatRequest):
             {"role": "assistant", "content": result["message"]},
         ]
 
-    return {
+    tool_results = _extract_tool_results(result.get("steps", []))
+    response_payload = {
         "session_id": request.session_id,
         "response": result["message"],
         "status": "success",
-        "tool_results": _extract_tool_results(result.get("steps", [])),
+        "tool_results": tool_results,
         "timestamp": timestamp,
         "duration_ms": duration_ms,
     }
+    property_result = _extract_property_result(tool_results)
+    if property_result is not None:
+        response_payload["message"] = property_result.get("message", "为您找到以下符合条件的房源：")
+        response_payload["houses"] = property_result.get("houses", [])
+
+    return response_payload
 
 
 if __name__ == "__main__":

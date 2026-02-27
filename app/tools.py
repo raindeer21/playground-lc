@@ -46,6 +46,11 @@ class WebRequestInput(BaseModel):
     body: str | None = Field(default=None)
 
 
+class ProvidePropertyResultListInput(BaseModel):
+    message: str = Field(default="为您找到以下符合条件的房源：", description="User-facing message")
+    houses: list[str] = Field(default_factory=list, description="Matched house_id list")
+
+
 def set_skill_store(skill_store: SkillStore) -> None:
     global _skill_store
     _skill_store = skill_store
@@ -116,6 +121,18 @@ def web_request_mcp(
     body: str | None = None,
 ) -> str:
     return web_request(method=method, url=url, headers=headers, body=body)
+
+
+@mcp.tool(
+    name="provide_property_result_list",
+    description=(
+        "Return final structured property search results. "
+        "Call this when user asked to find properties and the search is complete."
+    ),
+)
+def provide_property_result_list(message: str = "为您找到以下符合条件的房源：", houses: list[str] | None = None) -> str:
+    payload = ProvidePropertyResultListInput(message=message, houses=houses or [])
+    return payload.model_dump_json(ensure_ascii=False)
 
 
 def _normalize_openapi_spec(spec: dict) -> dict:

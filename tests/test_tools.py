@@ -80,3 +80,18 @@ def test_web_request_uses_httpx_and_disables_proxy_env(monkeypatch) -> None:
         "content": "demo",
     }
     assert payload["status_code"] == 200
+
+
+def test_dispatch_tool_provide_property_result_list_returns_payload() -> None:
+    tools = AgentTools(_DummySkillStore())
+
+    result = tools.dispatch_tool(
+        "provide_property_result_list",
+        {"message": "为您找到以下符合条件的房源：", "houses": ["HF_4", "HF_6", "HF_277"]},
+    )
+    payload = json.loads(result)
+
+    assert payload == {
+        "message": "为您找到以下符合条件的房源：",
+        "houses": ["HF_4", "HF_6", "HF_277"],
+    }
