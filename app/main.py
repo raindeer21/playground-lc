@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import logging
+import time
+from collections import defaultdict
+from threading import Lock
+from typing import Any
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
@@ -27,6 +31,36 @@ class ChatCompletionRequest(BaseModel):
     messages: list[ChatMessage]
 
 
+class AgentChatRequest(BaseModel):
+    model_ip: str
+    session_id: str
+    message: str
+
+
+_session_histories: dict[str, list[dict[str, str]]] = defaultdict(list)
+_session_lock = Lock()
+
+
+def _extract_tool_results(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    tool_results: list[dict[str, Any]] = []
+    pending_names: list[str] = []
+    for step in steps:
+        if step.get("type") == "tool_calls":
+            for call in step.get("tool_calls", []):
+                pending_names.append(call.get("name", "unknown"))
+        elif step.get("type") == "tool_result":
+            output = str(step.get("content", ""))
+            name = pending_names.pop(0) if pending_names else "unknown"
+            tool_results.append(
+                {
+                    "name": name,
+                    "success": '"error"' not in output,
+                    "output": output,
+                }
+            )
+    return tool_results
+
+
 @app.post("/v1/chat/completions")
 def chat_completions(request: ChatCompletionRequest):
     logger.info("Incoming /v1/chat/completions request with %s message(s)", len(request.messages))
@@ -50,6 +84,45 @@ def chat_completions(request: ChatCompletionRequest):
             }
         ],
         "steps": result["steps"],
+    }
+
+
+@app.post("/api/v1/chat")
+def agent_chat(request: AgentChatRequest):
+    start = time.perf_counter()
+    logger.info("Incoming /api/v1/chat request | session_id=%s | model_ip=%s", request.session_id, request.model_ip)
+
+    with _session_lock:
+        history = list(_session_histories[request.session_id])
+    history.append({"role": "user", "content": request.message})
+
+    result = runtime.chat(history)
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    timestamp = int(time.time())
+
+    if "error" in result:
+        return {
+            "session_id": request.session_id,
+            "response": result["error"],
+            "status": "error",
+            "tool_results": [],
+            "timestamp": timestamp,
+            "duration_ms": duration_ms,
+        }
+
+    with _session_lock:
+        _session_histories[request.session_id] = [
+            *history,
+            {"role": "assistant", "content": result["message"]},
+        ]
+
+    return {
+        "session_id": request.session_id,
+        "response": result["message"],
+        "status": "success",
+        "tool_results": _extract_tool_results(result.get("steps", [])),
+        "timestamp": timestamp,
+        "duration_ms": duration_ms,
     }
 
 
