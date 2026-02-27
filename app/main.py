@@ -4,6 +4,7 @@ import logging
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
+from typing import Any
 import uvicorn
 from app.agent import AgentRuntime
 
@@ -50,6 +51,20 @@ def chat_completions(request: ChatCompletionRequest):
             }
         ],
         "steps": result["steps"],
+    }
+
+
+class OpenAPILoadRequest(BaseModel):
+    openapi: dict[str, Any]
+
+
+@app.post("/v1/openapi/load")
+def load_openapi_tools(request: OpenAPILoadRequest):
+    operation_ids = runtime.load_openapi_spec(request.openapi)
+    return {
+        "object": "openapi.tool_load",
+        "operation_count": len(operation_ids),
+        "operations": operation_ids,
     }
 
 

@@ -14,6 +14,7 @@ This project implements a LangChain-powered agent runtime with a **chat completi
 - Tools are implemented as standalone functions and composed via a dedicated `AgentTools` class.
 - `web_request` tool supports controlled HTTP requests.
 - Tool dispatch now runs through a local FastMCP server via in-memory transport (no external MCP process needed).
+- OpenAPI specs can be loaded into MCP tools dynamically via `POST /v1/openapi/load` (or via `OPENAPI_SPEC_JSON` at startup).
 
 ## Run
 
@@ -40,3 +41,14 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 - Add more skill folders under `skills/<skill-id>/SKILL.md`.
 - `steps` in the response provides a transparent trace of tool calls/results.
+
+
+## Load OpenAPI tools
+
+```bash
+curl -X POST http://localhost:8000/v1/openapi/load \
+  -H "content-type: application/json" \
+  -d @openapi.json
+```
+
+`openapi.json` should use the payload shape: `{ "openapi": { ...your OpenAPI document... } }`.

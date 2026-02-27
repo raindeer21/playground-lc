@@ -10,6 +10,7 @@ import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
+from app.openapi_tools import OpenAPIToolRegistry
 from app.skills import SkillStore
 from app.tools import AgentTools
 
@@ -22,19 +23,30 @@ class AgentRuntime:
         skills_dir: str = "skills",
         conversation_log_path: str | Path = "logs/agent_conversations.jsonl",
     ) -> None:
+        self.model = model
         self.skill_store = SkillStore(skills_dir)
-        self.tools = AgentTools(self.skill_store)
+        self.openapi_registry = OpenAPIToolRegistry.from_env()
+        self.tools = AgentTools(self.skill_store, openapi_registry=self.openapi_registry)
         self.conversation_log_path = Path(conversation_log_path)
         self._logger = logging.getLogger(__name__)
-        self.llm = ChatOpenAI(
-            model=model,
+        self.llm = self._build_llm()
+
+    def _build_llm(self):
+        return ChatOpenAI(
+            model=self.model,
             http_client=httpx.Client(trust_env=False),
             base_url="http://api.openai.rnd.huawei.com/v1/",
             api_key="sk-1234",
             # base_url="http://151.210.17.190:11345/v1",
             # api_key="",
-            temperature=0
+            temperature=0,
         ).bind_tools(self.tools.langchain_tools())
+
+    def load_openapi_spec(self, openapi_spec: dict[str, Any]) -> list[str]:
+        self.openapi_registry = OpenAPIToolRegistry(spec=openapi_spec)
+        self.tools = AgentTools(self.skill_store, openapi_registry=self.openapi_registry)
+        self.llm = self._build_llm()
+        return sorted(self.openapi_registry.operations.keys())
 
     def chat(self, messages: list[dict[str, str]], max_steps: int = 12) -> dict[str, Any]:
         self._logger.info("Agent chat started | max_steps=%s | message_count=%s", max_steps, len(messages))
@@ -108,7 +120,8 @@ class AgentRuntime:
                 "- Use tools when needed; if a direct answer is sufficient, reply directly. \n"
                 "- Workflow: first inspect the available skill headers below, call get_skills(skill_ids=[...]) when skills are relevant; "
                 "if only one skill is needed, get_skills(skill_id=...) is allowed. Prefer loading multiple skills in one call. \n"
-                "- Use web_request when you need web data.\n\n"
+                "- Use web_request when you need web data.\n"
+                "- OpenAPI-backed tools may be available; prefer operation-specific tools over manual web_request when possible.\n\n"
                 "For rental scenarios, enforce this policy: "
                 "(Important) YOU MUST USE SKILLS PROVIDED, NEVER MAKE ASSUMPTIONS OR MADE UP PROPERTIES, ALWAYS SEARCH FOR LISTINGS FIRST IF CONSTRAINS ARE CLEAR. "
                 "- extract explicit constraints (budget, district/area, bedrooms, rental type, commute, facilities), "

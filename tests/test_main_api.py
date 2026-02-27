@@ -35,6 +35,30 @@ def test_chat_completions_success_shape(monkeypatch) -> None:
     assert isinstance(payload["steps"], list)
 
 
+
+
+class _OpenAPIRuntime:
+    def load_openapi_spec(self, openapi):
+        assert "paths" in openapi
+        return ["get_landmarks", "get_house_by_id"]
+
+
+def test_load_openapi_tools_endpoint(monkeypatch) -> None:
+    from app import main
+
+    monkeypatch.setattr(main, "runtime", _OpenAPIRuntime())
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/v1/openapi/load",
+        json={"openapi": {"openapi": "3.0.3", "paths": {}}},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["operation_count"] == 2
+    assert payload["operations"] == ["get_landmarks", "get_house_by_id"]
+
 def call_with_history(client, history, msg):
     history.append({"role": "user", "content": msg})
     response = client.post(
