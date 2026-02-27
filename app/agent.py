@@ -11,10 +11,15 @@ from app.tools import AgentTools
 
 
 class AgentRuntime:
-    def __init__(self, model: str = "gpt-4o-mini", skills_dir: str = "skills") -> None:
+    def __init__(self, model: str = "qwen3-32b", skills_dir: str = "skills") -> None:
         self.skill_store = SkillStore(skills_dir)
         self.tools = AgentTools(self.skill_store)
-        self.llm = ChatOpenAI(model=model, temperature=0).bind_tools(self.tools.langchain_tools(), tool_choice="required")
+        self.llm = ChatOpenAI(
+            model=model,
+            base_url="http://api.openai.rnd.huawei.com/v1/",
+            api_key="sk-1234",
+            temperature=0
+        ).bind_tools(self.tools.langchain_tools(), tool_choice="required")
 
     def chat(self, messages: list[dict[str, str]], max_steps: int = 12) -> dict[str, Any]:
         history: list[BaseMessage] = [self._system_message()]
