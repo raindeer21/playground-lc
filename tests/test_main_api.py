@@ -97,8 +97,34 @@ def test_agent_chat_passes_model_and_session_to_runtime(monkeypatch) -> None:
     )
 
     assert response.status_code == 200
-    assert dummy_runtime.last_call == {"model": "127.0.0.1", "session_id": "abc-session"}
+    assert dummy_runtime.last_call == {"model": "127.0.0.1", "session_id": "abc-session", "base_url": None}
 
+
+
+
+def test_agent_chat_supports_model_and_base_url(monkeypatch) -> None:
+    from app import main
+
+    dummy_runtime = _DummyRuntime()
+    monkeypatch.setattr(main, "runtime", dummy_runtime)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/v1/chat",
+        json={
+            "model": "qwen3-32b",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "session_id": "abc-session-2",
+            "message": "查询海淀区的房源",
+        },
+    )
+
+    assert response.status_code == 200
+    assert dummy_runtime.last_call == {
+        "model": "qwen3-32b",
+        "session_id": "abc-session-2",
+        "base_url": "http://127.0.0.1:11434/v1",
+    }
 
 def call_with_history(client, history, msg):
     history.append({"role": "user", "content": msg})
