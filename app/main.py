@@ -33,7 +33,9 @@ class ChatCompletionRequest(BaseModel):
 
 
 class AgentChatRequest(BaseModel):
-    model_ip: str
+    model: str | None = None
+    model_ip: str | None = None
+    base_url: str | None = None
     session_id: str
     message: str
 
@@ -110,13 +112,14 @@ def chat_completions(request: ChatCompletionRequest):
 @app.post("/api/v1/chat")
 def agent_chat(request: AgentChatRequest):
     start = time.perf_counter()
-    logger.info("Incoming /api/v1/chat request | session_id=%s | model_ip=%s", request.session_id, request.model_ip)
+    request_model = request.model or request.model_ip
+    logger.info("Incoming /api/v1/chat request | session_id=%s | model=%s | base_url=%s", request.session_id, request_model, request.base_url)
 
     with _session_lock:
         history = list(_session_histories[request.session_id])
     history.append({"role": "user", "content": request.message})
 
-    result = runtime.chat(history, model=request.model_ip, session_id=request.session_id)
+    result = runtime.chat(history, model=request_model, session_id=request.session_id, base_url=request.base_url)
     duration_ms = int((time.perf_counter() - start) * 1000)
     timestamp = int(time.time())
 
