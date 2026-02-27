@@ -27,7 +27,6 @@ class AgentRuntime:
         self._logger = logging.getLogger(__name__)
         self.llm = ChatOpenAI(
             model=model,
-            temperature=0,
             http_client=httpx.Client(trust_env=False),
             base_url="http://api.openai.rnd.huawei.com/v1/",
             api_key="sk-1234",
