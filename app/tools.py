@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from functools import partial
-from typing import Callable
-
 import requests
+from fastmcp import Client, FastMCP
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
@@ -55,6 +55,28 @@ def web_request(method: str, url: str, headers: dict[str, str] | None = None, bo
 class AgentTools:
     def __init__(self, skill_store: SkillStore) -> None:
         self.skill_store = skill_store
+        self._mcp = FastMCP("agent-tools")
+        self._register_mcp_tools()
+
+    def _register_mcp_tools(self) -> None:
+        def get_skills_tool(skill_id: str) -> str:
+            """Return full SKILL.md content for a given skill_id."""
+            return get_skills(skill_id=skill_id, skill_store=self.skill_store)
+
+        def web_request_tool(
+            method: str = "GET",
+            url: str = "",
+            headers: dict[str, str] | None = None,
+            body: str | None = None,
+        ) -> str:
+            """Perform an HTTP request and return status, headers, and truncated body."""
+            return web_request(method=method, url=url, headers=headers, body=body)
+
+        get_skills_tool.__name__ = "get_skills"
+        web_request_tool.__name__ = "web_request"
+
+        self._mcp.add_tool(get_skills_tool)
+        self._mcp.add_tool(web_request_tool)
 
     def langchain_tools(self) -> list[StructuredTool]:
         return [
@@ -72,16 +94,19 @@ class AgentTools:
             ),
         ]
 
+    async def _dispatch_tool_async(self, name: str, args: dict) -> str:
+        async with Client(self._mcp) as client:
+            result = await client.call_tool(name, args, raise_on_error=False)
+        if result.is_error:
+            return json.dumps({"error": result.data})
+        return str(result.data)
+
     def dispatch_tool(self, name: str, args: dict) -> str:
         logger.info("dispatch_tool called | name=%s | args=%s", name, json.dumps(args, ensure_ascii=False))
-        dispatch_map: dict[str, Callable[..., str]] = {
-            "get_skills": lambda **kwargs: get_skills(skill_store=self.skill_store, **kwargs),
-            "web_request": web_request,
-        }
-        handler = dispatch_map.get(name)
-        if not handler:
-            logger.error("Unknown tool requested: %s", name)
+        try:
+            result = asyncio.run(self._dispatch_tool_async(name, args))
+        except Exception:  # noqa: BLE001
+            logger.exception("dispatch_tool failed")
             return json.dumps({"error": f"Unknown tool {name}"})
-        result = handler(**args)
         logger.info("dispatch_tool finished | name=%s | result_preview=%s", name, result[:500])
         return result
