@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -11,9 +14,16 @@ from app.tools import AgentTools
 
 
 class AgentRuntime:
-    def __init__(self, model: str = "qwen3-32b", skills_dir: str = "skills") -> None:
+    def __init__(
+        self,
+        model: str = "qwen3-32b",
+        skills_dir: str = "skills",
+        conversation_log_path: str | Path = "logs/agent_conversations.jsonl",
+    ) -> None:
         self.skill_store = SkillStore(skills_dir)
         self.tools = AgentTools(self.skill_store)
+        self.conversation_log_path = Path(conversation_log_path)
+        self._logger = logging.getLogger(__name__)
         self.llm = ChatOpenAI(
             model=model,
             base_url="http://api.openai.rnd.huawei.com/v1/",
@@ -30,7 +40,9 @@ class AgentRuntime:
             history.append(ai_message)
 
             if not ai_message.tool_calls:
-                return {"error": "Model returned no tool call; tool_choice='required' should prevent this."}
+                error_response = {"error": "Model returned no tool call; tool_choice='required' should prevent this."}
+                self._log_conversation(messages, error_response)
+                return error_response
 
             for call in ai_message.tool_calls:
                 result = self.tools.dispatch_tool(call["name"], call["args"])
@@ -38,12 +50,29 @@ class AgentRuntime:
 
                 if call["name"] == "respond_to_user":
                     payload = json.loads(result)
-                    return {
+                    response = {
                         "message": payload["final"],
                         "steps": _serialize_steps(history),
                     }
+                    self._log_conversation(messages, response)
+                    return response
 
-        return {"error": "Agent hit max_steps without calling respond_to_user."}
+        error_response = {"error": "Agent hit max_steps without calling respond_to_user."}
+        self._log_conversation(messages, error_response)
+        return error_response
+
+    def _log_conversation(self, messages: list[dict[str, str]], response: dict[str, Any]) -> None:
+        payload = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "messages": messages,
+            "response": response,
+        }
+        try:
+            self.conversation_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.conversation_log_path.open("a", encoding="utf-8") as fp:
+                fp.write(f"{json.dumps(payload, ensure_ascii=False)}\n")
+        except OSError:
+            self._logger.exception("Failed to write conversation log")
 
     def _system_message(self) -> SystemMessage:
         headers = self.skill_store.headers()
