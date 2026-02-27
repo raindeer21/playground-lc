@@ -84,7 +84,7 @@ def test_chat_completions_passes_model_to_runtime(monkeypatch) -> None:
     assert dummy_runtime.last_call == {"model": "custom-model"}
 
 
-def test_agent_chat_passes_model_and_session_to_runtime(monkeypatch) -> None:
+def test_agent_chat_passes_base_url_and_session_to_runtime(monkeypatch) -> None:
     from app import main
 
     dummy_runtime = _DummyRuntime()
@@ -93,16 +93,16 @@ def test_agent_chat_passes_model_and_session_to_runtime(monkeypatch) -> None:
 
     response = client.post(
         "/api/v1/chat",
-        json={"model_ip": "127.0.0.1", "session_id": "abc-session", "message": "查询海淀区的房源"},
+        json={"model_ip": "http://127.0.0.1:11434/v1", "session_id": "abc-session", "message": "查询海淀区的房源"},
     )
 
     assert response.status_code == 200
-    assert dummy_runtime.last_call == {"model": "127.0.0.1", "session_id": "abc-session", "base_url": None}
+    assert dummy_runtime.last_call == {"session_id": "abc-session", "base_url": "http://127.0.0.1:11434/v1"}
 
 
 
 
-def test_agent_chat_supports_model_and_base_url(monkeypatch) -> None:
+def test_agent_chat_treats_model_ip_as_base_url(monkeypatch) -> None:
     from app import main
 
     dummy_runtime = _DummyRuntime()
@@ -112,8 +112,7 @@ def test_agent_chat_supports_model_and_base_url(monkeypatch) -> None:
     response = client.post(
         "/api/v1/chat",
         json={
-            "model": "qwen3-32b",
-            "base_url": "http://127.0.0.1:11434/v1",
+            "model_ip": "http://127.0.0.1:11434/v1",
             "session_id": "abc-session-2",
             "message": "查询海淀区的房源",
         },
@@ -121,7 +120,6 @@ def test_agent_chat_supports_model_and_base_url(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert dummy_runtime.last_call == {
-        "model": "qwen3-32b",
         "session_id": "abc-session-2",
         "base_url": "http://127.0.0.1:11434/v1",
     }
@@ -171,7 +169,7 @@ def test_agent_chat_success_shape(monkeypatch) -> None:
 
     response = client.post(
         "/api/v1/chat",
-        json={"model_ip": "127.0.0.1", "session_id": "abc123", "message": "查询海淀区的房源"},
+        json={"model_ip": "http://127.0.0.1:11434/v1", "session_id": "abc123", "message": "查询海淀区的房源"},
     )
 
     assert response.status_code == 200
@@ -193,7 +191,7 @@ def test_agent_chat_error_shape(monkeypatch) -> None:
 
     response = client.post(
         "/api/v1/chat",
-        json={"model_ip": "127.0.0.1", "session_id": "abc124", "message": "查询海淀区的房源"},
+        json={"model_ip": "http://127.0.0.1:11434/v1", "session_id": "abc124", "message": "查询海淀区的房源"},
     )
 
     assert response.status_code == 200
@@ -211,7 +209,7 @@ def test_agent_chat_returns_property_result_when_tool_called(monkeypatch) -> Non
 
     response = client.post(
         "/api/v1/chat",
-        json={"model_ip": "127.0.0.1", "session_id": "abc125", "message": "帮我找房"},
+        json={"model_ip": "http://127.0.0.1:11434/v1", "session_id": "abc125", "message": "帮我找房"},
     )
 
     assert response.status_code == 200
