@@ -48,6 +48,7 @@ def call_with_history(client, history, msg):
 def test_chat() -> None:
 
     from app import main
+    main.runtime = _DummyRuntime()
     history = []
     client = TestClient(main.app)
 

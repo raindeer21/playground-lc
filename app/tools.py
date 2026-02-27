@@ -5,11 +5,9 @@ import json
 import logging
 from pathlib import Path
 from copy import deepcopy
-from functools import partial
 
 import httpx
 from fastmcp import Client, FastMCP
-from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, model_validator
 
 from app.skills import SkillStore
@@ -163,21 +161,22 @@ class AgentTools:
         except Exception:  # noqa: BLE001
             logger.exception("Failed to load OpenAPI tools from %s", _openapi_spec_path)
 
-    def langchain_tools(self) -> list[StructuredTool]:
+    async def _mcp_tools_async(self) -> list[dict[str, object]]:
+        tools = await mcp.list_tools()
         return [
-            StructuredTool.from_function(
-                name="get_skills",
-                description="Return full SKILL.md content for one or more skill_ids. Prefer skill_ids to fetch multiple skills in one call.",
-                args_schema=GetSkillsInput,
-                func=partial(get_skills, skill_store=self.skill_store),
-            ),
-            StructuredTool.from_function(
-                name="web_request",
-                description="Perform an HTTP request and return status, headers, and truncated body.",
-                args_schema=WebRequestInput,
-                func=web_request,
-            ),
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description or "",
+                    "parameters": tool.parameters or {"type": "object", "properties": {}},
+                },
+            }
+            for tool in tools
         ]
+
+    def langchain_tools(self) -> list[dict[str, object]]:
+        return asyncio.run(self._mcp_tools_async())
 
     async def _dispatch_tool_async(self, name: str, args: dict) -> str:
         async with Client(mcp) as client:
