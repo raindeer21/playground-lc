@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
+from copy import deepcopy
 from functools import partial
 
 import httpx
@@ -16,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 mcp = FastMCP("agent-tools")
 _skill_store: SkillStore | None = None
+_openapi_loaded = False
+_openapi_spec_path = Path(__file__).with_name("openapi_fake_app_agent_api.json")
 
 
 class GetSkillsInput(BaseModel):
@@ -116,10 +120,48 @@ def web_request_mcp(
     return web_request(method=method, url=url, headers=headers, body=body)
 
 
+def _normalize_openapi_spec(spec: dict) -> dict:
+    normalized = deepcopy(spec)
+    for path_item in normalized.get("paths", {}).values():
+        for operation in path_item.values():
+            if not isinstance(operation, dict):
+                continue
+            operation.setdefault(
+                "responses",
+                {"200": {"description": "OK", "content": {"application/json": {"schema": {"type": "object"}}}}},
+            )
+    return normalized
+
+
+
 class AgentTools:
     def __init__(self, skill_store: SkillStore) -> None:
         self.skill_store = skill_store
         set_skill_store(skill_store)
+        self._ensure_openapi_tools_loaded()
+
+    def _ensure_openapi_tools_loaded(self) -> None:
+        global _openapi_loaded
+        if _openapi_loaded:
+            return
+
+        async def _load() -> None:
+            with _openapi_spec_path.open("r", encoding="utf-8") as fp:
+                openapi_spec = _normalize_openapi_spec(json.load(fp))
+
+            server = openapi_spec.get("servers", [{}])[0].get("url", "")
+            child_server = FastMCP.from_openapi(
+                openapi_spec,
+                httpx.AsyncClient(base_url=server, timeout=20, trust_env=False),
+            )
+            await mcp.import_server(server=child_server, prefix="")
+
+        try:
+            asyncio.run(_load())
+            _openapi_loaded = True
+            logger.info("Loaded OpenAPI tools from %s", _openapi_spec_path)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to load OpenAPI tools from %s", _openapi_spec_path)
 
     def langchain_tools(self) -> list[StructuredTool]:
         return [
