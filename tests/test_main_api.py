@@ -7,7 +7,10 @@ class _DummyRuntime:
     def chat(self, _messages):
         return {
             "message": "已为你筛选 3 套高匹配房源",
-            "steps": [{"type": "tool_calls", "tool_calls": []}],
+            "steps": [
+                {"type": "tool_calls", "tool_calls": [{"name": "bash", "args": {}}]},
+                {"type": "tool_result", "content": "ok"},
+            ],
         }
 
 
@@ -70,3 +73,43 @@ def test_chat_completions_error_shape(monkeypatch) -> None:
     payload = response.json()
     assert payload["id"] == "chatcmpl-error"
     assert "max_steps" in payload["choices"][0]["message"]["content"]
+
+
+def test_agent_chat_success_shape(monkeypatch) -> None:
+    from app import main
+
+    monkeypatch.setattr(main, "runtime", _DummyRuntime())
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/v1/chat",
+        json={"model_ip": "127.0.0.1", "session_id": "abc123", "message": "查询海淀区的房源"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session_id"] == "abc123"
+    assert payload["response"] == "已为你筛选 3 套高匹配房源"
+    assert payload["status"] == "success"
+    assert payload["tool_results"][0]["name"] == "bash"
+    assert payload["tool_results"][0]["success"] is True
+    assert isinstance(payload["timestamp"], int)
+    assert isinstance(payload["duration_ms"], int)
+
+
+def test_agent_chat_error_shape(monkeypatch) -> None:
+    from app import main
+
+    monkeypatch.setattr(main, "runtime", _ErrorRuntime())
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/v1/chat",
+        json={"model_ip": "127.0.0.1", "session_id": "abc124", "message": "查询海淀区的房源"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session_id"] == "abc124"
+    assert payload["status"] == "error"
+    assert payload["tool_results"] == []
