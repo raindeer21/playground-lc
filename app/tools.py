@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from functools import partial
-from typing import Callable
 
 import requests
+from fastmcp import Client, FastMCP
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.skills import SkillStore
 
 logger = logging.getLogger(__name__)
+
+mcp = FastMCP("agent-tools")
+_skill_store: SkillStore | None = None
 
 
 class GetSkillsInput(BaseModel):
@@ -25,12 +29,28 @@ class WebRequestInput(BaseModel):
     body: str | None = Field(default=None)
 
 
+def set_skill_store(skill_store: SkillStore) -> None:
+    global _skill_store
+    _skill_store = skill_store
+
+
+def _require_skill_store() -> SkillStore:
+    if _skill_store is None:
+        raise RuntimeError("Skill store is not initialized")
+    return _skill_store
+
+
 def get_skills(skill_id: str, skill_store: SkillStore) -> str:
     logger.info("get_skills called | skill_id=%s", skill_id)
     skill = skill_store.get(skill_id)
     if not skill:
         return json.dumps({"error": f"Unknown skill_id: {skill_id}"})
     return json.dumps({"skill_id": skill_id, "content": skill.body})
+
+
+@mcp.tool(name="get_skills", description="Return full SKILL.md content for a given skill_id.")
+def get_skills_mcp(skill_id: str) -> str:
+    return get_skills(skill_id=skill_id, skill_store=_require_skill_store())
 
 
 def web_request(method: str, url: str, headers: dict[str, str] | None = None, body: str | None = None) -> str:
@@ -52,9 +72,20 @@ def web_request(method: str, url: str, headers: dict[str, str] | None = None, bo
         return json.dumps({"error": str(exc)})
 
 
+@mcp.tool(name="web_request", description="Perform an HTTP request and return status, headers, and truncated body.")
+def web_request_mcp(
+    method: str = "GET",
+    url: str = "",
+    headers: dict[str, str] | None = None,
+    body: str | None = None,
+) -> str:
+    return web_request(method=method, url=url, headers=headers, body=body)
+
+
 class AgentTools:
     def __init__(self, skill_store: SkillStore) -> None:
         self.skill_store = skill_store
+        set_skill_store(skill_store)
 
     def langchain_tools(self) -> list[StructuredTool]:
         return [
@@ -72,16 +103,19 @@ class AgentTools:
             ),
         ]
 
+    async def _dispatch_tool_async(self, name: str, args: dict) -> str:
+        async with Client(mcp) as client:
+            result = await client.call_tool(name, args, raise_on_error=False)
+        if result.is_error:
+            return json.dumps({"error": result.data})
+        return str(result.data)
+
     def dispatch_tool(self, name: str, args: dict) -> str:
         logger.info("dispatch_tool called | name=%s | args=%s", name, json.dumps(args, ensure_ascii=False))
-        dispatch_map: dict[str, Callable[..., str]] = {
-            "get_skills": lambda **kwargs: get_skills(skill_store=self.skill_store, **kwargs),
-            "web_request": web_request,
-        }
-        handler = dispatch_map.get(name)
-        if not handler:
-            logger.error("Unknown tool requested: %s", name)
+        try:
+            result = asyncio.run(self._dispatch_tool_async(name, args))
+        except Exception:  # noqa: BLE001
+            logger.exception("dispatch_tool failed")
             return json.dumps({"error": f"Unknown tool {name}"})
-        result = handler(**args)
         logger.info("dispatch_tool finished | name=%s | result_preview=%s", name, result[:500])
         return result

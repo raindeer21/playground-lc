@@ -13,6 +13,7 @@ This project implements a LangChain-powered agent runtime with a **chat completi
 - Conversations are logged to `logs/agent_conversations.jsonl` for auditing/debugging.
 - Tools are implemented as standalone functions and composed via a dedicated `AgentTools` class.
 - `web_request` tool supports controlled HTTP requests.
+- Tool dispatch now runs through a local FastMCP server via in-memory transport (no external MCP process needed).
 
 ## Run
 
