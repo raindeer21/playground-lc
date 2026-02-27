@@ -165,9 +165,16 @@ class AgentTools:
                 openapi_spec = _normalize_openapi_spec(json.load(fp))
 
             server = openapi_spec.get("servers", [{}])[0].get("url", "")
+            # Use a synchronous HTTP client for imported OpenAPI tools.
+            #
+            # When we pass an httpx.AsyncClient here, it gets created inside
+            # asyncio.run(...), which closes that event loop after import. Later
+            # tool calls execute in a different loop and may crash with
+            # "RuntimeError: Event loop is closed" while the async client is
+            # scheduling callbacks.
             child_server = FastMCP.from_openapi(
                 openapi_spec,
-                httpx.AsyncClient(base_url=server, timeout=20, trust_env=False),
+                httpx.Client(base_url=server, timeout=20, trust_env=False),
             )
             await mcp.import_server(server=child_server, prefix="")
 
