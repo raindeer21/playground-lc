@@ -5,7 +5,7 @@ import json
 import logging
 from functools import partial
 
-import requests
+import httpx
 from fastmcp import Client, FastMCP
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, model_validator
@@ -89,7 +89,8 @@ def get_skills_mcp(skill_id: str | None = None, skill_ids: list[str] | None = No
 def web_request(method: str, url: str, headers: dict[str, str] | None = None, body: str | None = None) -> str:
     logger.info("web_request called | method=%s | url=%s | headers=%s | body_preview=%s", method, url, headers or {}, (body or "")[:300])
     try:
-        response = requests.request(method=method.upper(), url=url, headers=headers or {}, data=body, timeout=20)
+        with httpx.Client(timeout=20, trust_env=False) as client:
+            response = client.request(method=method.upper(), url=url, headers=headers or {}, content=body)
         truncated = response.text[:4000]
         payload = json.dumps(
             {
