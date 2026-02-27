@@ -10,12 +10,14 @@ from fastmcp import Client, FastMCP
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, model_validator
 
+from app.openapi_tools import OpenAPIToolRegistry
 from app.skills import SkillStore
 
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP("agent-tools")
 _skill_store: SkillStore | None = None
+_registered_mcp_tool_names: set[str] = {"get_skills", "web_request"}
 
 
 class GetSkillsInput(BaseModel):
@@ -117,12 +119,15 @@ def web_request_mcp(
 
 
 class AgentTools:
-    def __init__(self, skill_store: SkillStore) -> None:
+    def __init__(self, skill_store: SkillStore, openapi_registry: OpenAPIToolRegistry | None = None) -> None:
         self.skill_store = skill_store
+        self.openapi_registry = openapi_registry
         set_skill_store(skill_store)
+        if self.openapi_registry:
+            self._register_openapi_mcp_tools()
 
     def langchain_tools(self) -> list[StructuredTool]:
-        return [
+        tools = [
             StructuredTool.from_function(
                 name="get_skills",
                 description="Return full SKILL.md content for one or more skill_ids. Prefer skill_ids to fetch multiple skills in one call.",
@@ -136,6 +141,49 @@ class AgentTools:
                 func=web_request,
             ),
         ]
+        if self.openapi_registry:
+            for operation in self.openapi_registry.operations.values():
+                tools.append(
+                    StructuredTool.from_function(
+                        name=operation.operation_id,
+                        description=operation.description,
+                        args_schema=operation.args_schema,
+                        func=partial(self.openapi_registry.call_operation, operation.operation_id),
+                    )
+                )
+        return tools
+
+    def _register_openapi_mcp_tools(self) -> None:
+        assert self.openapi_registry is not None
+        for operation in self.openapi_registry.operations.values():
+            if operation.operation_id in _registered_mcp_tool_names:
+                continue
+
+            field_names = list(operation.args_schema.model_fields.keys())
+            required_names = {
+                name for name, field in operation.args_schema.model_fields.items() if field.is_required()
+            }
+            fn_args = []
+            for name in field_names:
+                if name in required_names:
+                    fn_args.append(name)
+                else:
+                    fn_args.append(f"{name}=None")
+            args_sig = ", ".join(fn_args)
+            payload_map = ", ".join([f'"{name}": {name}' for name in field_names])
+
+            namespace: dict[str, object] = {"registry": self.openapi_registry}
+            code = (
+                f"def _tool({args_sig}):\n"
+                f"    kwargs = {{{payload_map}}}\n"
+                f"    return registry.call_operation(\"{operation.operation_id}\", **kwargs)\n"
+            )
+            exec(code, namespace)
+            tool_fn = namespace["_tool"]
+            tool_fn.__name__ = operation.operation_id
+            tool_fn.__doc__ = operation.description
+            mcp.tool(name=operation.operation_id, description=operation.description)(tool_fn)
+            _registered_mcp_tool_names.add(operation.operation_id)
 
     async def _dispatch_tool_async(self, name: str, args: dict) -> str:
         async with Client(mcp) as client:
