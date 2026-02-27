@@ -42,3 +42,41 @@ def test_dispatch_tool_unknown_tool_returns_error() -> None:
     payload = json.loads(tools.dispatch_tool("missing_tool", {}))
 
     assert "error" in payload
+
+
+def test_web_request_uses_httpx_and_disables_proxy_env(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _Response:
+        status_code = 200
+        headers = {"content-type": "text/plain"}
+        text = "ok"
+
+    class _DummyClient:
+        def __init__(self, *args, **kwargs):
+            captured["client_kwargs"] = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, **kwargs):
+            captured["request_kwargs"] = kwargs
+            return _Response()
+
+    monkeypatch.setattr("app.tools.httpx.Client", _DummyClient)
+
+    from app.tools import web_request
+
+    payload = json.loads(web_request(method="get", url="https://example.com", headers={"x": "y"}, body="demo"))
+
+    assert captured["client_kwargs"]["trust_env"] is False
+    assert captured["request_kwargs"] == {
+        "method": "GET",
+        "url": "https://example.com",
+        "headers": {"x": "y"},
+        "content": "demo",
+    }
+    assert payload["status_code"] == 200
