@@ -87,6 +87,6 @@ def test_langchain_tools_excludes_respond_to_user() -> None:
 
     from app.tools import AgentTools
 
-    tool_names = [tool.name for tool in AgentTools(_DummySkillStore()).langchain_tools()]
+    tool_names = [tool["function"]["name"] for tool in AgentTools(_DummySkillStore()).langchain_tools()]
 
     assert "respond_to_user" not in tool_names
