@@ -35,8 +35,26 @@ def test_chat_completions_success_shape(monkeypatch) -> None:
     assert isinstance(payload["steps"], list)
 
 
+def call_with_history(client, history, msg):
+    history.append({"role": "user", "content": msg})
+    response = client.post(
+        "/v1/chat/completions",
+        json={"messages": history},
+    )
+    assert response.status_code == 200
+    history.append(response.json()["choices"][0]["message"])
+    return response.json()
+
+def test_chat() -> None:
+
+    from app import main
+    history = []
+    client = TestClient(main.app)
+
+    print(call_with_history(client, history, "帮我在西二旗租一个二房的房子"))
+    print(call_with_history(client, history, "整租 预算5000"))
+
 def test_chat_completions_error_shape(monkeypatch) -> None:
-    os.environ.setdefault("OPENAI_API_KEY", "test-key")
     from app import main
 
     monkeypatch.setattr(main, "runtime", _ErrorRuntime())

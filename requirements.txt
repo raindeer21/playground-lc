@@ -9,3 +9,6 @@ pytest>=8.0.0
 
 pydantic
 langchain-core
+
+pydantic
+langchain-core

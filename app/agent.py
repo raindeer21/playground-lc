@@ -18,6 +18,7 @@ class AgentRuntime:
     def __init__(
         self,
         model: str = "qwen3-32b",
+        # model: str = "qwen3",
         skills_dir: str = "skills",
         conversation_log_path: str | Path = "logs/agent_conversations.jsonl",
     ) -> None:
@@ -30,6 +31,8 @@ class AgentRuntime:
             http_client=httpx.Client(trust_env=False),
             base_url="http://api.openai.rnd.huawei.com/v1/",
             api_key="sk-1234",
+            # base_url="http://151.210.17.190:11345/v1",
+            # api_key="",
             temperature=0
         ).bind_tools(self.tools.langchain_tools())
 
@@ -38,6 +41,7 @@ class AgentRuntime:
         self._logger.info("Incoming messages payload: %s", json.dumps(messages, ensure_ascii=False))
 
         history: list[BaseMessage] = [self._system_message()]
+        self._logger.info("System Prompt: %s", self._system_message())
         history.extend(self._convert_messages(messages))
 
         for step in range(max_steps):
@@ -100,16 +104,19 @@ class AgentRuntime:
         headers = self.skill_store.headers()
         return SystemMessage(
             content=(
-                "You are a tool-using assistant. Use tools when needed; if a direct answer is sufficient, reply directly. "
-                "Workflow: first inspect the available skill headers below, then call get_skills(skill_id) when a skill is relevant, "
-                "and use web_request when you need web data.\n\n"
+                "You are a house-renting assistant. \n"
+                "- Use tools when needed; if a direct answer is sufficient, reply directly. \n"
+                "- Workflow: first inspect the available skill headers below, call get_skills(skill_ids=[...]) when skills are relevant; "
+                "if only one skill is needed, get_skills(skill_id=...) is allowed. Prefer loading multiple skills in one call. \n"
+                "- Use web_request when you need web data.\n\n"
                 "For rental scenarios, enforce this policy: "
-                "(1) extract explicit constraints (budget, district/area, bedrooms, rental type, commute, facilities), "
-                "(2) ask one focused follow-up question when key constraints are missing or ambiguous, "
-                "(3) verify and compare candidate listings across dimensions (commute, price-performance, amenities, facilities, risk), "
-                "(4) return practical recommendations with clear pros/cons, and "
-                "(5) cap final recommended candidates to at most 5 listings.\n\n"
-                f"Available skill headers:\n{json.dumps(headers, indent=2)}"
+                "(Important) YOU MUST USE SKILLS PROVIDED, NEVER MAKE ASSUMPTIONS OR MADE UP PROPERTIES, ALWAYS SEARCH FOR LISTINGS FIRST IF CONSTRAINS ARE CLEAR. "
+                "- extract explicit constraints (budget, district/area, bedrooms, rental type, commute, facilities), "
+                "- ask one focused follow-up question when key constraints are missing or ambiguous, proactively gather information from"
+                "- verify and compare candidate listings across dimensions (commute, price-performance, amenities, facilities, risk), "
+                "- return practical recommendations with clear pros/cons, and "
+                "- cap final recommended candidates to at most 5 listings.\n\n"
+                f"Available skills:\n{json.dumps(headers, indent=2)}"
             )
         )
 

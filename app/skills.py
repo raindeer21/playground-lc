@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 from typing import Iterable
+import logging
 
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
@@ -20,12 +21,16 @@ class Skill:
 
 class SkillStore:
     def __init__(self, root: str | Path = "skills") -> None:
+        self._logger = logging.getLogger(__name__)
+        self._logger.setLevel(logging.DEBUG)
         self.root = Path(root)
         self._skills = self._load_skills()
+        self._logger.info(f"Skills loaded: {self._skills}")
 
     def _load_skills(self) -> dict[str, Skill]:
         skills: dict[str, Skill] = {}
         if not self.root.exists():
+            self._logger.error(f"ROOT NOT FOUND: {self.root.absolute()}")
             return skills
 
         for skill_md in self.root.glob("*/SKILL.md"):
