@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
@@ -14,7 +15,11 @@ class AgentRuntime:
     def __init__(self, model: str = "gpt-4o-mini", skills_dir: str = "skills") -> None:
         self.skill_store = SkillStore(skills_dir)
         self.tools = AgentTools(self.skill_store)
-        self.llm = ChatOpenAI(model=model, temperature=0).bind_tools(self.tools.langchain_tools(), tool_choice="required")
+        self.llm = ChatOpenAI(
+            model=model,
+            temperature=0,
+            http_client=httpx.Client(trust_env=False),
+        ).bind_tools(self.tools.langchain_tools(), tool_choice="required")
 
     def chat(self, messages: list[dict[str, str]], max_steps: int = 12) -> dict[str, Any]:
         history: list[BaseMessage] = [self._system_message()]
