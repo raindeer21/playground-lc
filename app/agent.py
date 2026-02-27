@@ -31,7 +31,7 @@ class AgentRuntime:
             base_url="http://api.openai.rnd.huawei.com/v1/",
             api_key="sk-1234",
             temperature=0
-        ).bind_tools(self.tools.langchain_tools(), tool_choice="required")
+        ).bind_tools(self.tools.langchain_tools())
 
     def chat(self, messages: list[dict[str, str]], max_steps: int = 12) -> dict[str, Any]:
         self._logger.info("Agent chat started | max_steps=%s | message_count=%s", max_steps, len(messages))
@@ -52,9 +52,13 @@ class AgentRuntime:
             )
 
             if not ai_message.tool_calls:
-                error_response = {"error": "Model returned no tool call; tool_choice='required' should prevent this."}
-                self._log_conversation(messages, error_response)
-                return error_response
+                response = {
+                    "message": str(ai_message.content),
+                    "steps": _serialize_steps(history),
+                }
+                self._logger.info("Agent completed with direct LLM response at step %s", step + 1)
+                self._log_conversation(messages, response)
+                return response
 
             for call in ai_message.tool_calls:
                 self._logger.info(
@@ -72,18 +76,8 @@ class AgentRuntime:
                 )
                 history.append(ToolMessage(content=result, tool_call_id=call["id"]))
 
-                if call["name"] == "respond_to_user":
-                    payload = json.loads(result)
-                    response = {
-                        "message": payload["final"],
-                        "steps": _serialize_steps(history),
-                    }
-                    self._logger.info("Agent completed successfully at step %s", step + 1)
-                    self._log_conversation(messages, response)
-                    return response
-
-        self._logger.error("Agent hit max_steps=%s without respond_to_user", max_steps)
-        error_response = {"error": "Agent hit max_steps without calling respond_to_user."}
+        self._logger.error("Agent hit max_steps=%s without direct response", max_steps)
+        error_response = {"error": "Agent hit max_steps without producing a direct response."}
         self._log_conversation(messages, error_response)
         return error_response
 
@@ -106,9 +100,9 @@ class AgentRuntime:
         headers = self.skill_store.headers()
         return SystemMessage(
             content=(
-                "You are a tools-only agent. You must ALWAYS return one or more tool calls and never plain text. "
+                "You are a tool-using assistant. Use tools when needed; if a direct answer is sufficient, reply directly. "
                 "Workflow: first inspect the available skill headers below, then call get_skills(skill_id) when a skill is relevant, "
-                "use web_request if you need web data, and ALWAYS finish by calling respond_to_user.\n\n"
+                "and use web_request when you need web data.\n\n"
                 "For rental scenarios, enforce this policy: "
                 "(1) extract explicit constraints (budget, district/area, bedrooms, rental type, commute, facilities), "
                 "(2) ask one focused follow-up question when key constraints are missing or ambiguous, "

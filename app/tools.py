@@ -18,10 +18,6 @@ class GetSkillsInput(BaseModel):
     skill_id: str = Field(..., description="The skill_id to load. Use one from skill headers.")
 
 
-class RespondInput(BaseModel):
-    message: str = Field(..., description="The final assistant response for the user.")
-
-
 class WebRequestInput(BaseModel):
     method: str = Field(default="GET", description="HTTP method")
     url: str = Field(..., description="Target URL")
@@ -56,11 +52,6 @@ def web_request(method: str, url: str, headers: dict[str, str] | None = None, bo
         return json.dumps({"error": str(exc)})
 
 
-def respond_to_user(message: str) -> str:
-    logger.info("respond_to_user called | message_preview=%s", message[:500])
-    return json.dumps({"final": message})
-
-
 class AgentTools:
     def __init__(self, skill_store: SkillStore) -> None:
         self.skill_store = skill_store
@@ -79,12 +70,6 @@ class AgentTools:
                 args_schema=WebRequestInput,
                 func=web_request,
             ),
-            StructuredTool.from_function(
-                name="respond_to_user",
-                description="End the session by returning the final response to the user.",
-                args_schema=RespondInput,
-                func=respond_to_user,
-            ),
         ]
 
     def dispatch_tool(self, name: str, args: dict) -> str:
@@ -92,7 +77,6 @@ class AgentTools:
         dispatch_map: dict[str, Callable[..., str]] = {
             "get_skills": lambda **kwargs: get_skills(skill_store=self.skill_store, **kwargs),
             "web_request": web_request,
-            "respond_to_user": respond_to_user,
         }
         handler = dispatch_map.get(name)
         if not handler:
