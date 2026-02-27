@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
-
+import uvicorn
 from app.agent import AgentRuntime
 
 
@@ -43,3 +43,7 @@ def chat_completions(request: ChatCompletionRequest):
         ],
         "steps": result["steps"],
     }
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8080)
