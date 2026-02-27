@@ -26,19 +26,31 @@ class AgentRuntime:
         self.tools = AgentTools(self.skill_store)
         self.conversation_log_path = Path(conversation_log_path)
         self._logger = logging.getLogger(__name__)
-        self.llm = ChatOpenAI(
+        self.default_model = model
+        self.llm = self._build_llm(model=model)
+
+    def _build_llm(self, model: str, session_id: str | None = None):
+        client_headers = {"Session-ID": session_id} if session_id else None
+        return ChatOpenAI(
             model=model,
-            http_client=httpx.Client(trust_env=False),
+            http_client=httpx.Client(trust_env=False, headers=client_headers),
             base_url="http://api.openai.rnd.huawei.com/v1/",
             api_key="sk-1234",
             # base_url="http://151.210.17.190:11345/v1",
             # api_key="",
-            temperature=0
+            temperature=0,
         ).bind_tools(self.tools.langchain_tools())
 
-    def chat(self, messages: list[dict[str, str]], max_steps: int = 12) -> dict[str, Any]:
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        max_steps: int = 12,
+        model: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
         self._logger.info("Agent chat started | max_steps=%s | message_count=%s", max_steps, len(messages))
         self._logger.info("Incoming messages payload: %s", json.dumps(messages, ensure_ascii=False))
+        llm = self.llm if (model is None and session_id is None) else self._build_llm(model=model or self.default_model, session_id=session_id)
 
         history: list[BaseMessage] = [self._system_message()]
         self._logger.info("System Prompt: %s", self._system_message())
@@ -46,7 +58,7 @@ class AgentRuntime:
 
         for step in range(max_steps):
             self._logger.info("Invoking LLM at step %s", step + 1)
-            ai_message: AIMessage = self.llm.invoke(history)
+            ai_message: AIMessage = llm.invoke(history)
             history.append(ai_message)
             self._logger.info(
                 "LLM response at step %s | content=%s | tool_calls=%s",

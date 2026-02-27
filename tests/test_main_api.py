@@ -4,7 +4,11 @@ from fastapi.testclient import TestClient
 
 
 class _DummyRuntime:
-    def chat(self, _messages):
+    def __init__(self):
+        self.last_call = None
+
+    def chat(self, _messages, **kwargs):
+        self.last_call = kwargs
         return {
             "message": "已为你筛选 3 套高匹配房源",
             "steps": [
@@ -17,7 +21,7 @@ class _DummyRuntime:
 
 
 class _PropertyResultRuntime:
-    def chat(self, _messages):
+    def chat(self, _messages, **_kwargs):
         return {
             "message": "done",
             "steps": [
@@ -41,7 +45,7 @@ class _PropertyResultRuntime:
         }
 
 class _ErrorRuntime:
-    def chat(self, _messages):
+    def chat(self, _messages, **_kwargs):
         return {"error": "Agent hit max_steps without calling respond_to_user."}
 
 
@@ -62,6 +66,38 @@ def test_chat_completions_success_shape(monkeypatch) -> None:
     assert payload["object"] == "chat.completion"
     assert payload["choices"][0]["message"]["content"] == "已为你筛选 3 套高匹配房源"
     assert isinstance(payload["steps"], list)
+
+
+def test_chat_completions_passes_model_to_runtime(monkeypatch) -> None:
+    from app import main
+
+    dummy_runtime = _DummyRuntime()
+    monkeypatch.setattr(main, "runtime", dummy_runtime)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={"model": "custom-model", "messages": [{"role": "user", "content": "帮我找房"}]},
+    )
+
+    assert response.status_code == 200
+    assert dummy_runtime.last_call == {"model": "custom-model"}
+
+
+def test_agent_chat_passes_model_and_session_to_runtime(monkeypatch) -> None:
+    from app import main
+
+    dummy_runtime = _DummyRuntime()
+    monkeypatch.setattr(main, "runtime", dummy_runtime)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/v1/chat",
+        json={"model_ip": "127.0.0.1", "session_id": "abc-session", "message": "查询海淀区的房源"},
+    )
+
+    assert response.status_code == 200
+    assert dummy_runtime.last_call == {"model": "127.0.0.1", "session_id": "abc-session"}
 
 
 def call_with_history(client, history, msg):
