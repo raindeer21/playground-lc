@@ -59,24 +59,18 @@ class AgentTools:
         self._register_mcp_tools()
 
     def _register_mcp_tools(self) -> None:
+        @self._mcp.tool(name="get_skills", description="Return full SKILL.md content for a given skill_id.")
         def get_skills_tool(skill_id: str) -> str:
-            """Return full SKILL.md content for a given skill_id."""
             return get_skills(skill_id=skill_id, skill_store=self.skill_store)
 
+        @self._mcp.tool(name="web_request", description="Perform an HTTP request and return status, headers, and truncated body.")
         def web_request_tool(
             method: str = "GET",
             url: str = "",
             headers: dict[str, str] | None = None,
             body: str | None = None,
         ) -> str:
-            """Perform an HTTP request and return status, headers, and truncated body."""
             return web_request(method=method, url=url, headers=headers, body=body)
-
-        get_skills_tool.__name__ = "get_skills"
-        web_request_tool.__name__ = "web_request"
-
-        self._mcp.add_tool(get_skills_tool)
-        self._mcp.add_tool(web_request_tool)
 
     def langchain_tools(self) -> list[StructuredTool]:
         return [
