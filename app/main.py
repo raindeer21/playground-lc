@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 import uvicorn
@@ -8,6 +10,11 @@ from app.agent import AgentRuntime
 
 app = FastAPI(title="Skill-aware Agent API")
 runtime = AgentRuntime()
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 class ChatMessage(BaseModel):
@@ -22,6 +29,7 @@ class ChatCompletionRequest(BaseModel):
 
 @app.post("/v1/chat/completions")
 def chat_completions(request: ChatCompletionRequest):
+    logger.info("Incoming /v1/chat/completions request with %s message(s)", len(request.messages))
     result = runtime.chat([m.model_dump() for m in request.messages])
 
     if "error" in result:

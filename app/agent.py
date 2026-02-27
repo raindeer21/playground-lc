@@ -34,12 +34,22 @@ class AgentRuntime:
         ).bind_tools(self.tools.langchain_tools(), tool_choice="required")
 
     def chat(self, messages: list[dict[str, str]], max_steps: int = 12) -> dict[str, Any]:
+        self._logger.info("Agent chat started | max_steps=%s | message_count=%s", max_steps, len(messages))
+        self._logger.info("Incoming messages payload: %s", json.dumps(messages, ensure_ascii=False))
+
         history: list[BaseMessage] = [self._system_message()]
         history.extend(self._convert_messages(messages))
 
-        for _ in range(max_steps):
+        for step in range(max_steps):
+            self._logger.info("Invoking LLM at step %s", step + 1)
             ai_message: AIMessage = self.llm.invoke(history)
             history.append(ai_message)
+            self._logger.info(
+                "LLM response at step %s | content=%s | tool_calls=%s",
+                step + 1,
+                ai_message.content,
+                json.dumps(ai_message.tool_calls, ensure_ascii=False),
+            )
 
             if not ai_message.tool_calls:
                 error_response = {"error": "Model returned no tool call; tool_choice='required' should prevent this."}
@@ -47,7 +57,19 @@ class AgentRuntime:
                 return error_response
 
             for call in ai_message.tool_calls:
+                self._logger.info(
+                    "Dispatching tool call | step=%s | tool=%s | args=%s",
+                    step + 1,
+                    call["name"],
+                    json.dumps(call["args"], ensure_ascii=False),
+                )
                 result = self.tools.dispatch_tool(call["name"], call["args"])
+                self._logger.info(
+                    "Tool result | step=%s | tool=%s | result=%s",
+                    step + 1,
+                    call["name"],
+                    result,
+                )
                 history.append(ToolMessage(content=result, tool_call_id=call["id"]))
 
                 if call["name"] == "respond_to_user":
@@ -56,14 +78,17 @@ class AgentRuntime:
                         "message": payload["final"],
                         "steps": _serialize_steps(history),
                     }
+                    self._logger.info("Agent completed successfully at step %s", step + 1)
                     self._log_conversation(messages, response)
                     return response
 
+        self._logger.error("Agent hit max_steps=%s without respond_to_user", max_steps)
         error_response = {"error": "Agent hit max_steps without calling respond_to_user."}
         self._log_conversation(messages, error_response)
         return error_response
 
     def _log_conversation(self, messages: list[dict[str, str]], response: dict[str, Any]) -> None:
+        logger = getattr(self, "_logger", logging.getLogger(__name__))
         payload = {
             "timestamp": datetime.now(UTC).isoformat(),
             "messages": messages,
@@ -73,8 +98,9 @@ class AgentRuntime:
             self.conversation_log_path.parent.mkdir(parents=True, exist_ok=True)
             with self.conversation_log_path.open("a", encoding="utf-8") as fp:
                 fp.write(f"{json.dumps(payload, ensure_ascii=False)}\n")
+            logger.info("Conversation logged to %s", self.conversation_log_path)
         except OSError:
-            self._logger.exception("Failed to write conversation log")
+            logger.exception("Failed to write conversation log")
 
     def _system_message(self) -> SystemMessage:
         headers = self.skill_store.headers()
