@@ -95,3 +95,27 @@ def test_dispatch_tool_provide_property_result_list_returns_payload() -> None:
         "message": "为您找到以下符合条件的房源：",
         "houses": ["HF_4", "HF_6", "HF_277"],
     }
+
+
+def test_agent_tools_openapi_uses_async_http_client(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _DummyChildServer:
+        pass
+
+    def _fake_from_openapi(spec, client):
+        captured["client"] = client
+        return _DummyChildServer()
+
+    async def _fake_import_server(self, server, prefix=""):
+        return None
+
+    monkeypatch.setattr("app.tools.FastMCP.from_openapi", _fake_from_openapi)
+    monkeypatch.setattr("app.tools.FastMCP.import_server", _fake_import_server)
+    monkeypatch.setattr("app.tools._openapi_loaded", False)
+
+    AgentTools(_DummySkillStore())
+
+    import httpx
+
+    assert isinstance(captured["client"], httpx.AsyncClient)
