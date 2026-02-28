@@ -38,7 +38,7 @@ class AgentChatRequest(BaseModel):
     message: str
 
 
-_session_histories: dict[str, list[dict[str, str]]] = defaultdict(list)
+_session_histories: dict[str, list[dict[str, Any]]] = defaultdict(list)
 _session_lock = Lock()
 
 
@@ -79,6 +79,29 @@ def _extract_property_result(tool_results: list[dict[str, Any]]) -> dict[str, An
         except Exception:
             continue
     return None
+
+
+def _build_history_entries(result: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for step in result.get("steps", []):
+        step_type = step.get("type")
+        if step_type == "tool_calls":
+            entries.append(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": step.get("tool_calls", []),
+                }
+            )
+        elif step_type == "tool_result":
+            entries.append(
+                {
+                    "role": "tool",
+                    "content": str(step.get("content", "")),
+                }
+            )
+    entries.append({"role": "assistant", "content": result.get("message", "")})
+    return entries
 
 
 @app.post("/v1/chat/completions")
@@ -140,10 +163,7 @@ async def agent_chat(request: AgentChatRequest):
         }
 
     with _session_lock:
-        _session_histories[request.session_id] = [
-            *history,
-            {"role": "assistant", "content": result["message"], },
-        ]
+        _session_histories[request.session_id] = [*history, *_build_history_entries(result)]
 
     tool_results = _extract_tool_results(result.get("steps", []))
     response_payload = {
