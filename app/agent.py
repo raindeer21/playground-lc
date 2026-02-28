@@ -64,6 +64,7 @@ class AgentRuntime:
 
         for step in range(max_steps):
             self._logger.info("Invoking LLM at step %s", step + 1)
+            self._logger.info(f"History | {history}")
             ai_message: AIMessage = llm.invoke(history)
             history.append(ai_message)
             self._logger.info(
@@ -206,5 +207,8 @@ def _serialize_steps(history: list[BaseMessage]) -> list[dict[str, Any]]:
         if isinstance(msg, AIMessage) and msg.tool_calls:
             steps.append({"type": "tool_calls", "tool_calls": msg.tool_calls})
         elif isinstance(msg, ToolMessage):
-            steps.append({"type": "tool_result", "content": msg.content})
+            steps.append({"type": "tool_result",
+                          "content": msg.content,
+                          "tool_call_id": msg.tool_call_id,
+                          "status": msg.status})
     return steps

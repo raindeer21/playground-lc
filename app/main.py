@@ -117,6 +117,7 @@ def _build_history_entries(result: dict[str, Any]) -> list[dict[str, Any]]:
                 {
                     "role": "tool",
                     "content": str(step.get("content", "")),
+                    "tool_call_id": step.get("tool_call_id", ""),
                 }
             )
     entries.append({"role": "assistant", "content": result.get("message", "")})

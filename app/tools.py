@@ -200,10 +200,12 @@ def _extract_house_ids(payload: object) -> list[str]:
 
 
 @mcp.tool(
-    name="house_search",
-    description="根据筛选条件分别调用三大平台（链家/安居客/58同城）的 get_houses_by_platform 接口，并返回 {houseid, platform} 列表。",
+    name="get_houses_by_platform_simple",
+    description="触发器：不需要具体信息，仅搜索房源列表时优先使用该工具。"
+                "仅当需要房屋的具体信息时使用get_houses_by_platform。"
+                "根据筛选条件分别获取三大平台（链家/安居客/58同城）的房源，并返回 {houseid, platform} 列表。",
 )
-def house_search(
+def get_houses_by_platform_simple(
     district: str | None = None,
     area: str | None = None,
     min_price: int | None = None,
@@ -285,10 +287,13 @@ def house_search(
 
 
 @mcp.tool(
-    name="get_houses_list_nearby",
-    description="根据地标分别调用三大平台（链家/安居客/58同城）的 get_houses_nearby 接口，并返回 {houseid, platform} 列表。",
+    name="get_houses_nearby_simple",
+    description="触发器：不需要具体信息，仅搜索房源列表时优先使用该工具。"
+                "仅当需要房屋的具体信息时使用 get_houses_nearby。"
+                "以地标为圆心查附近房源，分别获取三大平台（链家/安居客/58同城）的房源，并返回 {houseid, platform} 列表。"
+                "必须先使用search_landmarks获取精准地标名称/ID后，才能调用该接口。以地标为圆心，查询在指定距离内的可租房源，返回带直线距离、步行距离、步行时间。",
 )
-def get_houses_list_nearby(
+def get_houses_nearby_simple(
     landmark_id: str,
     max_distance: int | None = None,
     page: int | None = 1,
@@ -334,7 +339,7 @@ def get_houses_list_nearby(
 
 
 @mcp.tool(
-    name="get_houses_list_by_community",
+    name="get_houses_by_community",
     description="根据小区名分别调用三大平台（链家/安居客/58同城）的 get_houses_by_community 接口，并返回 {houseid, platform} 列表。",
 )
 def get_houses_list_by_community(
