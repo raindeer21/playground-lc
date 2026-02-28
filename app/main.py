@@ -4,6 +4,7 @@ import json
 import logging
 import time
 from collections import defaultdict
+from pathlib import Path
 from threading import Lock
 from typing import Any
 
@@ -20,6 +21,17 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+agent_chat_logger = logging.getLogger("agent_chat")
+if not agent_chat_logger.handlers:
+    log_file = Path(__file__).resolve().parent / "agent_chat.log"
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+    )
+    agent_chat_logger.addHandler(file_handler)
+agent_chat_logger.setLevel(logging.INFO)
+agent_chat_logger.propagate = False
 
 
 class ChatMessage(BaseModel):
@@ -138,6 +150,10 @@ async def agent_chat(request: AgentChatRequest):
         request.session_id,
         request.model_ip,
     )
+    agent_chat_logger.info(
+        "request=%s",
+        json.dumps(request.model_dump(), ensure_ascii=False),
+    )
 
     with _session_lock:
         history = list(_session_histories[request.session_id])
@@ -153,7 +169,7 @@ async def agent_chat(request: AgentChatRequest):
     timestamp = int(time.time())
 
     if "error" in result:
-        return {
+        error_payload = {
             "session_id": request.session_id,
             "response": result["error"],
             "status": "error",
@@ -161,6 +177,8 @@ async def agent_chat(request: AgentChatRequest):
             "timestamp": timestamp,
             "duration_ms": duration_ms,
         }
+        agent_chat_logger.info("response=%s", json.dumps(error_payload, ensure_ascii=False))
+        return error_payload
 
     with _session_lock:
         _session_histories[request.session_id] = [*history, *_build_history_entries(result)]
@@ -179,6 +197,7 @@ async def agent_chat(request: AgentChatRequest):
         response_payload["response"] = json.dumps(property_result, ensure_ascii=False)
 
     logger.info(f"Final Response | {response_payload}")
+    agent_chat_logger.info("response=%s", json.dumps(response_payload, ensure_ascii=False))
     return response_payload
 
 
