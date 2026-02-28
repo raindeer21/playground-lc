@@ -12,7 +12,7 @@ from langchain_openai import ChatOpenAI
 
 from app.skills import SkillStore
 from app.tools import AgentTools
-
+import asyncio
 
 class AgentRuntime:
     def __init__(
@@ -28,9 +28,9 @@ class AgentRuntime:
         self._logger = logging.getLogger(__name__)
         self.default_model = model
         self.default_base_url = "http://api.openai.rnd.huawei.com/v1/"
-        self.llm = self._build_llm(model=model)
+        self.llm = asyncio.run(self._build_llm(model=model))
 
-    def _build_llm(self, model: str, session_id: str | None = None, base_url: str | None = None):
+    async def _build_llm(self, model: str, session_id: str | None = None, base_url: str | None = None):
         client_headers = {"Session-ID": session_id} if session_id else None
         return ChatOpenAI(
             model=model,
@@ -40,9 +40,9 @@ class AgentRuntime:
             # base_url="http://151.210.17.190:11345/v1",
             # api_key="",
             temperature=0,
-        ).bind_tools(self.tools.langchain_tools())
+        ).bind_tools(await self.tools.langchain_tools())
 
-    def chat(
+    async def chat(
         self,
         messages: list[dict[str, str]],
         max_steps: int = 12,
@@ -52,14 +52,14 @@ class AgentRuntime:
     ) -> dict[str, Any]:
         self._logger.info("Agent chat started | max_steps=%s | message_count=%s", max_steps, len(messages))
         self._logger.info("Incoming messages payload: %s", json.dumps(messages, ensure_ascii=False))
-        llm = self.llm if (model is None and session_id is None and base_url is None) else self._build_llm(
+        llm = self.llm if (model is None and session_id is None and base_url is None) else await self._build_llm(
             model=model or self.default_model,
             session_id=session_id,
             base_url=base_url,
         )
 
         history: list[BaseMessage] = [self._system_message()]
-        self._logger.info("System Prompt: %s", self._system_message())
+        # self._logger.info("System Prompt: %s", self._system_message())
         history.extend(self._convert_messages(messages))
 
         for step in range(max_steps):
@@ -89,7 +89,7 @@ class AgentRuntime:
                     call["name"],
                     json.dumps(call["args"], ensure_ascii=False),
                 )
-                result = self.tools.dispatch_tool(call["name"], call["args"])
+                result = await self.tools.dispatch_tool(call["name"], call["args"])
                 self._logger.info(
                     "Tool result | step=%s | tool=%s | result=%s",
                     step + 1,
@@ -122,18 +122,23 @@ class AgentRuntime:
         headers = self.skill_store.headers()
         return SystemMessage(
             content=(
-                "You are a house-renting assistant. \n"
-                "- Use tools when needed; if a direct answer is sufficient, reply directly. \n"
-                "- Workflow: first inspect the available skill headers below, call get_skills(skill_ids=[...]) when skills are relevant; "
-                "if only one skill is needed, get_skills(skill_id=...) is allowed. Prefer loading multiple skills in one call. \n"
-                "- Use web_request when you need web data.\n\n"
+                "You are a property agent assistant, specialises in renting. \n"
+                "Your responsibility: if user explicitly asks for a property,"
+                " search the listing that matches user's request, and return results found. "
+                "if user **explicitly asks for renting (帮我租) or releasing property**, do it without confirming with the user.\n"
+                "Use tools when needed; if a direct answer is sufficient, reply directly. "
+                # "Workflow: first inspect the available skill headers below, then call get_skills(skill_id) when a skill is relevant,"
+                # " if you need multiple skills, always request in one call."
+                # "do not use web_request unless you were instructed by a skill.\n\n"
                 "For rental scenarios, enforce this policy: "
-                "(Important) YOU MUST USE SKILLS PROVIDED, NEVER MAKE ASSUMPTIONS OR MADE UP PROPERTIES, ALWAYS SEARCH FOR LISTINGS FIRST IF CONSTRAINS ARE CLEAR. "
+                "(Important) YOU MUST NEVER MAKE ASSUMPTIONS OR MADE UP PROPERTIES, ALWAYS SEARCH FOR LISTINGS IF CONSTRAINS ARE CLEAR. "
                 "- extract explicit constraints (budget, district/area, bedrooms, rental type, commute, facilities), "
-                "- ask one focused follow-up question when key constraints are missing or ambiguous, proactively gather information from"
+                # "- ask one focused follow-up question when key constraints are missing or ambiguous"
                 "- verify and compare candidate listings across dimensions (commute, price-performance, amenities, facilities, risk), "
+                "- if user is not specifying listing platform, always enumerate all three options(链家,安居客,58同城) if listing is empty"
                 "- return practical recommendations with clear pros/cons, and "
-                "- cap final recommended candidates to at most 5 listings, and when a property-find request is completed call provide_property_result_list with the final house_ids.\n\n"
+                " cap final recommended candidates to at most 5 listings, "
+                " and when any property request (search, rent, release, etc) is completed **MUST** call provide_property_result_list with the final house_ids.\n\n"
                 f"Available skills:\n{json.dumps(headers, indent=2)}"
             )
         )

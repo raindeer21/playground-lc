@@ -6,7 +6,6 @@ import re
 from typing import Iterable
 import logging
 
-
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 
 
@@ -24,7 +23,8 @@ class SkillStore:
         self._logger = logging.getLogger(__name__)
         self._logger.setLevel(logging.DEBUG)
         self.root = Path(root)
-        self._skills = self._load_skills()
+        self._skills = {}
+        # self._skills = self._load_skills()
         self._logger.info(f"Skills loaded: {self._skills}")
 
     def _load_skills(self) -> dict[str, Skill]:
@@ -44,6 +44,7 @@ class SkillStore:
                 body=text,
                 path=skill_md,
             )
+
         return skills
 
     def headers(self) -> list[dict[str, str]]:

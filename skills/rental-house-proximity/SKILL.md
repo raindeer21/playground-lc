@@ -23,7 +23,7 @@ This skill handles **proximity-based** questions:
 This skill ALWAYS sends `X-User-ID: d00640449` for the **house** endpoints.
 
 Base URL:
-- `http://7.197.86.219:8080`
+- `http://7.225.29.223:8080`
 
 Tool:
 - `WebRequest(method, url, headers, payload)`
@@ -105,21 +105,21 @@ Always URL-encode:
 ### 1) Resolve landmark by exact name (helper)
 
 * method: `GET`
-* url: `http://7.197.86.219:8080/api/landmarks/name/%E8%A5%BF%E4%BA%8C%E6%97%97%E7%AB%99`
+* url: `http://7.225.29.223:8080/api/landmarks/name/%E8%A5%BF%E4%BA%8C%E6%97%97%E7%AB%99`
 * headers: `{}`
 * payload: `null`
 
 ### 2) Nearby houses around a landmark
 
 * method: `GET`
-* url: `http://7.197.86.219:8080/api/houses/nearby?landmark_id=SS_001&max_distance=2000&page=1&page_size=10&listing_platform=%E5%AE%89%E5%B1%85%E5%AE%A2`
+* url: `http://7.225.29.223:8080/api/houses/nearby?landmark_id=SS_001&max_distance=2000&page=1&page_size=10&listing_platform=%E5%AE%89%E5%B1%85%E5%AE%A2`
 * headers: `{ "X-User-ID": "d00640449" }`
 * payload: `null`
 
 ### 3) Nearby parks around a community
 
 * method: `GET`
-* url: `http://7.197.86.219:8080/api/houses/nearby_landmarks?community=%E5%BB%BA%E6%B8%85%E5%9B%AD(%E5%8D%97%E5%8C%BA)&type=park&max_distance_m=3000`
+* url: `http://7.225.29.223:8080/api/houses/nearby_landmarks?community=%E5%BB%BA%E6%B8%85%E5%9B%AD(%E5%8D%97%E5%8C%BA)&type=park&max_distance_m=3000`
 * headers: `{ "X-User-ID": "d00640449" }`
 * payload: `null`
 

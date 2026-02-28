@@ -13,7 +13,7 @@ This skill performs **house discovery**:
 It ALWAYS sends `X-User-ID: d00640449`.
 
 Base URL:
-- `http://7.197.86.219:8080`
+- `http://7.225.29.223:8080`
 
 Tool:
 - `WebRequest(method, url, headers, payload)`
@@ -160,14 +160,14 @@ Always set:
 **Basic search: Haidian, 1–2 bedrooms, <=8000, near subway**
 
 * method: `GET`
-* url: `http://7.197.86.219:8080/api/houses/by_platform?district=%E6%B5%B7%E6%B7%80&bedrooms=1,2&max_price=8000&max_subway_dist=800&page=1&page_size=10&sort_by=price&sort_order=asc`
+* url: `http://7.225.29.223:8080/api/houses/by_platform?district=%E6%B5%B7%E6%B7%80&bedrooms=1,2&max_price=8000&max_subway_dist=800&page=1&page_size=10&sort_by=price&sort_order=asc`
 * headers: `{ "X-User-ID": "d00640449" }`
 * payload: `null`
 
 **Community lookup**
 
 * method: `GET`
-* url: `http://7.197.86.219:8080/api/houses/by_community?community=%E5%BB%BA%E6%B8%85%E5%9B%AD(%E5%8D%97%E5%8C%BA)&page=1&page_size=10`
+* url: `http://7.225.29.223:8080/api/houses/by_community?community=%E5%BB%BA%E6%B8%85%E5%9B%AD(%E5%8D%97%E5%8C%BA)&page=1&page_size=10`
 * headers: `{ "X-User-ID": "d00640449" }`
 * payload: `null`
 

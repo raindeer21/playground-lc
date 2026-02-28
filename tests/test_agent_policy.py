@@ -54,7 +54,7 @@ def test_log_conversation_writes_jsonl(tmp_path) -> None:
     assert "timestamp" in payload
 
 
-def test_chat_returns_direct_response_when_llm_emits_no_tool_calls() -> None:
+async def test_chat_returns_direct_response_when_llm_emits_no_tool_calls() -> None:
     runtime = AgentRuntime.__new__(AgentRuntime)
 
     class _DummySkillStore:
@@ -74,7 +74,7 @@ def test_chat_returns_direct_response_when_llm_emits_no_tool_calls() -> None:
     runtime._logger = logging.getLogger(__name__)
     runtime.conversation_log_path = Path('/tmp/test_agent_conversations.jsonl')
 
-    response = runtime.chat([{"role": "user", "content": "hello"}], max_steps=1)
+    response = await runtime.chat([{"role": "user", "content": "hello"}], max_steps=1)
 
     assert response["message"] == "direct answer"
     assert response["steps"] == []

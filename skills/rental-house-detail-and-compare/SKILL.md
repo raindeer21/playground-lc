@@ -15,7 +15,7 @@ This skill is for **enrichment** after discovery:
 It ALWAYS sends `X-User-ID: d00640449`.
 
 Base URL:
-- `http://7.197.86.219:8080`
+- `http://7.225.29.223:8080`
 
 Tool:
 - `WebRequest(method, url, headers, payload)`
@@ -78,14 +78,14 @@ Always include:
 **House detail**
 
 * method: `GET`
-* url: `http://7.197.86.219:8080/api/houses/HF_2001`
+* url: `http://7.225.29.223:8080/api/houses/HF_2001`
 * headers: `{ "X-User-ID": "d00640449" }`
 * payload: `null`
 
 **House listings across platforms**
 
 * method: `GET`
-* url: `http://7.197.86.219:8080/api/houses/listings/HF_2001`
+* url: `http://7.225.29.223:8080/api/houses/listings/HF_2001`
 * headers: `{ "X-User-ID": "d00640449" }`
 * payload: `null`
 
