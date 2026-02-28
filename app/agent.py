@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import logging
 from datetime import UTC, datetime
@@ -203,12 +204,145 @@ class AgentRuntime:
 
 def _serialize_steps(history: list[BaseMessage]) -> list[dict[str, Any]]:
     steps: list[dict[str, Any]] = []
+    tool_call_name_by_id: dict[str, str] = {}
     for msg in history:
         if isinstance(msg, AIMessage) and msg.tool_calls:
+            for call in msg.tool_calls:
+                call_id = call.get("id")
+                call_name = call.get("name")
+                if isinstance(call_id, str) and isinstance(call_name, str):
+                    tool_call_name_by_id[call_id] = call_name
             steps.append({"type": "tool_calls", "tool_calls": msg.tool_calls})
         elif isinstance(msg, ToolMessage):
+            content: Any = msg.content
+            tool_name = tool_call_name_by_id.get(msg.tool_call_id)
+            if tool_name == "get_houses_nearby":
+                content = _compress_get_houses_nearby_result(msg.content)
+            elif tool_name == "get_houses_by_platform":
+                content = _compress_get_houses_by_platform_result(msg.content)
+            elif tool_name == "get_houses_by_community":
+                content = _compress_get_houses_by_community_result(msg.content)
             steps.append({"type": "tool_result",
-                          "content": msg.content,
+                          "content": content,
                           "tool_call_id": msg.tool_call_id,
                           "status": msg.status})
     return steps
+
+
+def _parse_tool_payload(content: Any) -> dict[str, Any] | None:
+    if not isinstance(content, str):
+        return None
+
+    for parser in (json.loads, ast.literal_eval):
+        try:
+            candidate = parser(content)
+            if isinstance(candidate, dict):
+                return candidate
+        except (json.JSONDecodeError, ValueError, SyntaxError):
+            continue
+    return None
+
+
+def _compress_get_houses_nearby_result(content: Any) -> Any:
+    payload = _parse_tool_payload(content)
+    if payload is None:
+        return content
+
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return content
+
+    landmark = data.get("landmark")
+    items = data.get("items")
+    if not isinstance(items, list):
+        return content
+
+    compressed_landmark = {}
+    if isinstance(landmark, dict):
+        compressed_landmark = {
+            "id": landmark.get("id"),
+            "name": landmark.get("name"),
+        }
+
+    compressed_items: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        compressed_items.append(
+            {
+                "house_id": item.get("house_id"),
+                "status": item.get("status"),
+                "distance_to_landmark": item.get("distance_to_landmark"),
+                "walking_distance": item.get("walking_distance"),
+                "walking_duration": item.get("walking_duration"),
+                "listing_platform": item.get("listing_platform"),
+            }
+        )
+
+    payload["data"] = {
+        "landmark": compressed_landmark,
+        "items": compressed_items,
+    }
+
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _compress_get_houses_by_platform_result(content: Any) -> Any:
+    payload = _parse_tool_payload(content)
+    if payload is None:
+        return content
+
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return content
+
+    items = data.get("items")
+    if not isinstance(items, list):
+        return content
+
+    compressed_items: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        compressed_items.append(
+            {
+                "house_id": item.get("house_id"),
+                "status": item.get("status"),
+            }
+        )
+
+    data["items"] = compressed_items
+    payload["data"] = data
+    return json.dumps(payload, ensure_ascii=False)
+
+
+
+def _compress_get_houses_by_community_result(content: Any) -> Any:
+    payload = _parse_tool_payload(content)
+    if payload is None:
+        return content
+
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return content
+
+    items = data.get("items")
+    if not isinstance(items, list):
+        return content
+
+    compressed_items: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        compressed_items.append(
+            {
+                "house_id": item.get("house_id"),
+                "community": item.get("community"),
+                "listing_platform": item.get("listing_platform"),
+                "status": item.get("status"),
+            }
+        )
+
+    data["items"] = compressed_items
+    payload["data"] = data
+    return json.dumps(payload, ensure_ascii=False)
