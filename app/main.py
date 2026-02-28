@@ -28,7 +28,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
-    model: str = Field(default="skill-agent-v1")
+    model: str = Field(default="qwen3-32b")
     messages: list[ChatMessage]
 
 
@@ -64,7 +64,7 @@ def _extract_tool_results(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _extract_property_result(tool_results: list[dict[str, Any]]) -> dict[str, Any] | None:
     for item in reversed(tool_results):
-        if item.get("name") != "provide_property_result_list":
+        if item.get("name") != "current_properties":
             continue
         try:
             parsed = item.get("output")
@@ -99,7 +99,7 @@ async def chat_completions(request: ChatCompletionRequest):
         "choices": [
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": result["message"]},
+                "message": {"role": "assistant", "content": result["message"], },
                 "finish_reason": "stop",
             }
         ],
@@ -120,7 +120,12 @@ async def agent_chat(request: AgentChatRequest):
         history = list(_session_histories[request.session_id])
     history.append({"role": "user", "content": request.message})
 
-    result = await runtime.chat(history, session_id=request.session_id, base_url=f"http://{request.model_ip}:8888/v2")
+    if request.model_ip:
+        base_url = f"http://{request.model_ip}:8888/v1"
+    else:
+        base_url = "http://api.openai.rnd.huawei.com/v1"
+
+    result = await runtime.chat(history, session_id=request.session_id, base_url=base_url)
     duration_ms = int((time.perf_counter() - start) * 1000)
     timestamp = int(time.time())
 
@@ -137,7 +142,7 @@ async def agent_chat(request: AgentChatRequest):
     with _session_lock:
         _session_histories[request.session_id] = [
             *history,
-            {"role": "assistant", "content": result["message"]},
+            {"role": "assistant", "content": result["message"], },
         ]
 
     tool_results = _extract_tool_results(result.get("steps", []))
@@ -151,9 +156,9 @@ async def agent_chat(request: AgentChatRequest):
     }
     property_result = _extract_property_result(tool_results)
     if property_result is not None:
-        response_payload["message"] = property_result.get("message", "为您找到以下符合条件的房源：")
-        response_payload["houses"] = property_result.get("houses", [])
+        response_payload["response"] = json.dumps(property_result, ensure_ascii=False)
 
+    logger.info(f"Final Response | {response_payload}")
     return response_payload
 
 
