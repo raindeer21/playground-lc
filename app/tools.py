@@ -77,6 +77,13 @@ class HouseSearchInput(BaseModel):
     page_size: int = Field(default=5, description="每页数量")
 
 
+class HouseNearbySearchInput(BaseModel):
+    landmark_id: str = Field(..., description="地标ID")
+    max_distance: int | None = Field(default=None, description="最大距离（米）")
+    page: int | None = Field(default=1, description="页码")
+    page_size: int = Field(default=5, description="每页数量")
+
+
 def set_skill_store(skill_store: SkillStore) -> None:
     global _skill_store
     _skill_store = skill_store
@@ -257,6 +264,55 @@ def house_search(
                 house_ids = _extract_house_ids(payload)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("house_search failed for platform=%s", platform)
+                errors.append({"platform": platform, "error": str(exc)})
+                house_ids = []
+
+            for house_id in house_ids:
+                houses.append({"houseid": house_id, "platform": platform})
+
+    result: dict[str, object] = {
+        "houses": houses,
+    }
+    if errors:
+        result["errors"] = errors
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool(
+    name="get_houses_list_nearby",
+    description="根据地标分别调用三大平台（链家/安居客/58同城）的 get_houses_nearby 接口，并返回 {houseid, platform} 列表。",
+)
+def get_houses_list_nearby(
+    landmark_id: str,
+    max_distance: int | None = None,
+    page: int | None = 1,
+    page_size: int = 5,
+) -> str:
+    params = HouseNearbySearchInput(
+        landmark_id=landmark_id,
+        max_distance=max_distance,
+        page=page,
+        page_size=page_size,
+    ).model_dump(exclude_none=True)
+
+    with _openapi_spec_path.open("r", encoding="utf-8") as fp:
+        openapi_spec = json.load(fp)
+    server = openapi_spec.get("servers", [{}])[0].get("url", "")
+
+    platforms = ["链家", "安居客", "58同城"]
+    houses: list[dict[str, str]] = []
+    errors: list[dict[str, str]] = []
+
+    with httpx.Client(base_url=server, timeout=20, trust_env=False, headers={"X-User-ID": "d00640449"}) as client:
+        for platform in platforms:
+            request_params = {**params, "listing_platform": platform}
+            try:
+                response = client.get("/api/houses/nearby", params=request_params)
+                response.raise_for_status()
+                payload = response.json()
+                house_ids = _extract_house_ids(payload)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("get_houses_list_nearby failed for platform=%s", platform)
                 errors.append({"platform": platform, "error": str(exc)})
                 house_ids = []
 

@@ -170,3 +170,53 @@ def test_house_search_calls_all_platforms_and_returns_house_platform_pairs(monke
         {"houseid": "B1", "platform": "安居客"},
         {"houseid": "C1", "platform": "58同城"},
     ]
+
+
+def test_get_houses_list_nearby_calls_all_platforms_and_returns_house_platform_pairs(monkeypatch) -> None:
+    from app.tools import get_houses_list_nearby
+
+    captured_requests: list[dict[str, object]] = []
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class _DummyClient:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, path, params):
+            captured_requests.append({"path": path, "params": params})
+            platform = params["listing_platform"]
+            payload_by_platform = {
+                "链家": {"houses": [{"house_id": "N1"}, {"house_id": "N2"}]},
+                "安居客": {"houses": [{"house_id": "N3"}]},
+                "58同城": {"houses": [{"house_id": "N4"}]},
+            }
+            return _Response(payload_by_platform[platform])
+
+    monkeypatch.setattr("app.tools.httpx.Client", _DummyClient)
+
+    payload = json.loads(get_houses_list_nearby(landmark_id="LM_1", max_distance=1200, page_size=5))
+
+    assert [r["params"]["listing_platform"] for r in captured_requests] == ["链家", "安居客", "58同城"]
+    assert all(r["path"] == "/api/houses/nearby" for r in captured_requests)
+    assert all(r["params"]["page_size"] == 5 for r in captured_requests)
+    assert payload["houses"] == [
+        {"houseid": "N1", "platform": "链家"},
+        {"houseid": "N2", "platform": "链家"},
+        {"houseid": "N3", "platform": "安居客"},
+        {"houseid": "N4", "platform": "58同城"},
+    ]
