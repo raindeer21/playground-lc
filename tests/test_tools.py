@@ -119,3 +119,54 @@ def test_agent_tools_openapi_uses_async_http_client(monkeypatch) -> None:
     import httpx
 
     assert isinstance(captured["client"], httpx.AsyncClient)
+
+
+def test_house_search_calls_all_platforms_and_returns_house_platform_pairs(monkeypatch) -> None:
+    from app.tools import house_search
+
+    captured_requests: list[dict[str, object]] = []
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class _DummyClient:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, path, params):
+            captured_requests.append({"path": path, "params": params})
+            platform = params["listing_platform"]
+            payload_by_platform = {
+                "链家": {"houses": [{"house_id": "A1"}, {"house_id": "A2"}]},
+                "安居客": {"houses": [{"house_id": "A2"}, {"house_id": "B1"}]},
+                "58同城": {"houses": [{"house_id": "C1"}]},
+            }
+            return _Response(payload_by_platform[platform])
+
+    monkeypatch.setattr("app.tools.httpx.Client", _DummyClient)
+
+    payload = json.loads(house_search(district="海淀", min_price=3000, page_size=5))
+
+    assert [r["params"]["listing_platform"] for r in captured_requests] == ["链家", "安居客", "58同城"]
+    assert all(r["path"] == "/api/houses/by_platform" for r in captured_requests)
+    assert all(r["params"]["page_size"] == 5 for r in captured_requests)
+    assert payload["houses"] == [
+        {"houseid": "A1", "platform": "链家"},
+        {"houseid": "A2", "platform": "链家"},
+        {"houseid": "A2", "platform": "安居客"},
+        {"houseid": "B1", "platform": "安居客"},
+        {"houseid": "C1", "platform": "58同城"},
+    ]

@@ -52,6 +52,31 @@ class ProvidePropertyResultListInput(BaseModel):
     houses: list[str] = Field(default_factory=list, description="Matched house_id list")
 
 
+class HouseSearchInput(BaseModel):
+    district: str | None = Field(default=None, description="行政区")
+    area: str | None = Field(default=None, description="商圈，逗号分隔")
+    min_price: int | None = Field(default=None, description="最低月租金（元）")
+    max_price: int | None = Field(default=None, description="最高月租金（元）")
+    bedrooms: str | None = Field(default=None, description="卧室数，逗号分隔")
+    rental_type: str | None = Field(default=None, description="整租 或 合租")
+    decoration: str | None = Field(default=None, description="装修，如精装/简装")
+    orientation: str | None = Field(default=None, description="朝向")
+    elevator: str | None = Field(default=None, description="是否有电梯：true/false")
+    min_area: int | None = Field(default=None, description="最小面积（平米）")
+    max_area: int | None = Field(default=None, description="最大面积（平米）")
+    property_type: str | None = Field(default=None, description="物业类型")
+    subway_line: str | None = Field(default=None, description="地铁线路")
+    max_subway_dist: int | None = Field(default=None, description="最大地铁距离（米）")
+    subway_station: str | None = Field(default=None, description="地铁站名")
+    utilities_type: str | None = Field(default=None, description="水电类型")
+    available_from_before: str | None = Field(default=None, description="可入住日期上限，YYYY-MM-DD")
+    commute_to_xierqi_max: int | None = Field(default=None, description="到西二旗通勤时间上限（分钟）")
+    sort_by: str | None = Field(default=None, description="排序字段：price/area/subway")
+    sort_order: str | None = Field(default=None, description="排序顺序：asc/desc")
+    page: int | None = Field(default=1, description="页码")
+    page_size: int = Field(default=5, description="每页数量")
+
+
 def set_skill_store(skill_store: SkillStore) -> None:
     global _skill_store
     _skill_store = skill_store
@@ -136,6 +161,114 @@ def web_request(method: str, url: str, headers: dict[str, str] | None = None, bo
 def current_properties(message: str = "为您找到以下符合条件的房源：", houses: list[str] | None = None) -> str:
     payload = ProvidePropertyResultListInput(message=message, houses=houses or [])
     return payload.model_dump_json(ensure_ascii=False)
+
+
+def _extract_house_ids(payload: object) -> list[str]:
+    if not isinstance(payload, (dict, list)):
+        return []
+
+    items: list[dict[str, object]] = []
+    if isinstance(payload, list):
+        items = [item for item in payload if isinstance(item, dict)]
+    else:
+        for key in ("houses", "items", "results", "data"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                items = [item for item in value if isinstance(item, dict)]
+                break
+
+    house_ids: list[str] = []
+    for item in items:
+        house_id = item.get("house_id")
+        if isinstance(house_id, str):
+            house_ids.append(house_id)
+
+    return house_ids
+
+
+@mcp.tool(
+    name="house_search",
+    description="根据筛选条件分别调用三大平台（链家/安居客/58同城）的 get_houses_by_platform 接口，并返回 {houseid, platform} 列表。",
+)
+def house_search(
+    district: str | None = None,
+    area: str | None = None,
+    min_price: int | None = None,
+    max_price: int | None = None,
+    bedrooms: str | None = None,
+    rental_type: str | None = None,
+    decoration: str | None = None,
+    orientation: str | None = None,
+    elevator: str | None = None,
+    min_area: int | None = None,
+    max_area: int | None = None,
+    property_type: str | None = None,
+    subway_line: str | None = None,
+    max_subway_dist: int | None = None,
+    subway_station: str | None = None,
+    utilities_type: str | None = None,
+    available_from_before: str | None = None,
+    commute_to_xierqi_max: int | None = None,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
+    page: int | None = 1,
+    page_size: int = 5,
+) -> str:
+    params = HouseSearchInput(
+        district=district,
+        area=area,
+        min_price=min_price,
+        max_price=max_price,
+        bedrooms=bedrooms,
+        rental_type=rental_type,
+        decoration=decoration,
+        orientation=orientation,
+        elevator=elevator,
+        min_area=min_area,
+        max_area=max_area,
+        property_type=property_type,
+        subway_line=subway_line,
+        max_subway_dist=max_subway_dist,
+        subway_station=subway_station,
+        utilities_type=utilities_type,
+        available_from_before=available_from_before,
+        commute_to_xierqi_max=commute_to_xierqi_max,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        page=page,
+        page_size=page_size,
+    ).model_dump(exclude_none=True)
+
+    with _openapi_spec_path.open("r", encoding="utf-8") as fp:
+        openapi_spec = json.load(fp)
+    server = openapi_spec.get("servers", [{}])[0].get("url", "")
+
+    platforms = ["链家", "安居客", "58同城"]
+    houses: list[dict[str, str]] = []
+    errors: list[dict[str, str]] = []
+
+    with httpx.Client(base_url=server, timeout=20, trust_env=False, headers={"X-User-ID": "d00640449"}) as client:
+        for platform in platforms:
+            request_params = {**params, "listing_platform": platform}
+            try:
+                response = client.get("/api/houses/by_platform", params=request_params)
+                response.raise_for_status()
+                payload = response.json()
+                house_ids = _extract_house_ids(payload)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("house_search failed for platform=%s", platform)
+                errors.append({"platform": platform, "error": str(exc)})
+                house_ids = []
+
+            for house_id in house_ids:
+                houses.append({"houseid": house_id, "platform": platform})
+
+    result: dict[str, object] = {
+        "houses": houses,
+    }
+    if errors:
+        result["errors"] = errors
+    return json.dumps(result, ensure_ascii=False)
 
 
 def _normalize_openapi_spec(spec: dict) -> dict:
