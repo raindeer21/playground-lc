@@ -7,7 +7,7 @@
     },
     "servers": [
         {
-            "url": "http://7.197.86.219:8080",
+            "url": "http://7.225.29.223:8080",
             "description": "租房仿真服务"
         }
     ],
@@ -43,7 +43,7 @@
             "get": {
                 "operationId": "get_landmark_by_name",
                 "summary": "按名称精确查询地标",
-                "description": "按名称精确查询地标，如西二旗站、百度。返回地标 id、经纬度等，用于后续 nearby 查房。不需 X-User-ID。",
+                "description": "必须先使用 search_landmarks 确认精准地标名称后，才能调用该接口，否则会失败。按名称精确查询地标，如西二旗站、百度。返回地标 id、经纬度等，用于后续 nearby 查房。不需 X-User-ID。",
                 "parameters": [
                     {
                         "name": "name",
@@ -466,7 +466,7 @@
             "get": {
                 "operationId": "get_houses_nearby",
                 "summary": "以地标为圆心查附近房源",
-                "description": "以地标为圆心，查询在指定距离内的可租房源，返回带直线距离、步行距离、步行时间。默认每页 10 条、未传 listing_platform 时只返回安居客。需先通过地标接口获得 landmark_id。调用时请求头必带 X-User-ID。",
+                "description": "必须先使用search_landmarks获取精准地标名称/ID后，才能调用该接口。以地标为圆心，查询在指定距离内的可租房源，返回带直线距离、步行距离、步行时间。默认每页 10 条、未传 listing_platform 时只返回安居客。需先通过地标接口获得 landmark_id。调用时请求头必带 X-User-ID。",
                 "parameters": [
                     {
                         "name": "landmark_id",

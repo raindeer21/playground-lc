@@ -14,7 +14,7 @@ This skill resolves **landmark names ↔ landmark IDs**, and lists/searches land
 These endpoints do **NOT** require `X-User-ID`.
 
 Base URL:
-- `http://7.197.86.219:8080`
+- `http://7.225.29.223:8080`
 
 Tool available:
 - `WebRequest(method, url, headers, payload)`
@@ -64,13 +64,13 @@ Use empty headers `{}` unless your runtime requires defaults. Do NOT add `X-User
 
 **Exact by name**
 - method: `GET`
-- url: `http://7.197.86.219:8080/api/landmarks/name/%E8%A5%BF%E4%BA%8C%E6%97%97%E7%AB%99`
+- url: `http://7.225.29.223:8080/api/landmarks/name/%E8%A5%BF%E4%BA%8C%E6%97%97%E7%AB%99`
 - headers: `{}`
 - payload: `null`
 
 **Fuzzy search**
 - method: `GET`
-- url: `http://7.197.86.219:8080/api/landmarks/search?q=%E8%A5%BF%E4%BA%8C%E6%97%97&category=subway&district=%E6%B5%B7%E6%B7%80`
+- url: `http://7.225.29.223:8080/api/landmarks/search?q=%E8%A5%BF%E4%BA%8C%E6%97%97&category=subway&district=%E6%B5%B7%E6%B7%80`
 - headers: `{}`
 - payload: `null`
 

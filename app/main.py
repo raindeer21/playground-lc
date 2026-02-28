@@ -82,9 +82,9 @@ def _extract_property_result(tool_results: list[dict[str, Any]]) -> dict[str, An
 
 
 @app.post("/v1/chat/completions")
-def chat_completions(request: ChatCompletionRequest):
+async def chat_completions(request: ChatCompletionRequest):
     logger.info("Incoming /v1/chat/completions request with %s message(s)", len(request.messages))
-    result = runtime.chat([m.model_dump() for m in request.messages], model=request.model)
+    result = await runtime.chat([m.model_dump() for m in request.messages], model=request.model)
 
     if "error" in result:
         return {
@@ -108,7 +108,7 @@ def chat_completions(request: ChatCompletionRequest):
 
 
 @app.post("/api/v1/chat")
-def agent_chat(request: AgentChatRequest):
+async def agent_chat(request: AgentChatRequest):
     start = time.perf_counter()
     logger.info(
         "Incoming /api/v1/chat request | session_id=%s | base_url=%s",
@@ -120,7 +120,7 @@ def agent_chat(request: AgentChatRequest):
         history = list(_session_histories[request.session_id])
     history.append({"role": "user", "content": request.message})
 
-    result = runtime.chat(history, session_id=request.session_id, base_url=request.model_ip)
+    result = await runtime.chat(history, session_id=request.session_id, base_url=f"http://{request.model_ip}:8888/v2")
     duration_ms = int((time.perf_counter() - start) * 1000)
     timestamp = int(time.time())
 

@@ -8,6 +8,7 @@ from copy import deepcopy
 
 import httpx
 from fastmcp import Client, FastMCP
+from fastmcp.exceptions import ToolError
 from pydantic import BaseModel, Field, model_validator
 
 from app.skills import SkillStore
@@ -113,14 +114,14 @@ def web_request(method: str, url: str, headers: dict[str, str] | None = None, bo
         return json.dumps({"error": str(exc)})
 
 
-@mcp.tool(name="web_request", description="Perform an HTTP request and return status, headers, and truncated body.")
-def web_request_mcp(
-    method: str = "GET",
-    url: str = "",
-    headers: dict[str, str] | None = None,
-    body: str | None = None,
-) -> str:
-    return web_request(method=method, url=url, headers=headers, body=body)
+# @mcp.tool(name="web_request", description="Perform an HTTP request and return status, headers, and truncated body.")
+# def web_request_mcp(
+#     method: str = "GET",
+#     url: str = "",
+#     headers: dict[str, str] | None = None,
+#     body: str | None = None,
+# ) -> str:
+#     return web_request(method=method, url=url, headers=headers, body=body)
 
 
 @mcp.tool(
@@ -171,9 +172,9 @@ class AgentTools:
             # expression" for imported operations.
             child_server = FastMCP.from_openapi(
                 openapi_spec,
-                httpx.AsyncClient(base_url=server, timeout=20, trust_env=False),
+                httpx.AsyncClient(base_url=server, timeout=20, trust_env=False, headers={"X-User-ID": "d00640449"}),
             )
-            await mcp.import_server(server=child_server, prefix="")
+            mcp.mount(server=child_server, namespace="")
 
         try:
             asyncio.run(_load())
@@ -196,20 +197,23 @@ class AgentTools:
             for tool in tools
         ]
 
-    def langchain_tools(self) -> list[dict[str, object]]:
-        return asyncio.run(self._mcp_tools_async())
+    async def langchain_tools(self) -> list[dict[str, object]]:
+        return await self._mcp_tools_async()
 
     async def _dispatch_tool_async(self, name: str, args: dict) -> str:
         async with Client(mcp) as client:
-            result = await client.call_tool(name, args, raise_on_error=False)
+            try:
+                result = await client.call_tool(name, args)
+            except ToolError as err:
+                return json.dumps({"error": str(err)})
         if result.is_error:
             return json.dumps({"error": result.data})
         return str(result.data)
 
-    def dispatch_tool(self, name: str, args: dict) -> str:
+    async def dispatch_tool(self, name: str, args: dict) -> str:
         logger.info("dispatch_tool called | name=%s | args=%s", name, json.dumps(args, ensure_ascii=False))
         try:
-            result = asyncio.run(self._dispatch_tool_async(name, args))
+            result = await self._dispatch_tool_async(name, args)
         except Exception:  # noqa: BLE001
             logger.exception("dispatch_tool failed")
             return json.dumps({"error": f"Unknown tool {name}"})

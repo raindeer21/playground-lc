@@ -18,7 +18,7 @@ This skill executes **state-changing operations** on a house:
 It ALWAYS sends `X-User-ID: d00640449`.
 
 Base URL:
-- `http://7.197.86.219:8080`
+- `http://7.225.29.223:8080`
 
 Tool:
 - `WebRequest(method, url, headers, payload)`
@@ -91,21 +91,21 @@ No JSON body is specified; use `null`.
 **Rent on Anjuke**
 
 * method: `POST`
-* url: `http://7.197.86.219:8080/api/houses/HF_2001/rent?listing_platform=%E5%AE%89%E5%B1%85%E5%AE%A2`
+* url: `http://7.225.29.223:8080/api/houses/HF_2001/rent?listing_platform=%E5%AE%89%E5%B1%85%E5%AE%A2`
 * headers: `{ "X-User-ID": "d00640449" }`
 * payload: `null`
 
 **Terminate on Lianjia**
 
 * method: `POST`
-* url: `http://7.197.86.219:8080/api/houses/HF_2001/terminate?listing_platform=%E9%93%BE%E5%AE%B6`
+* url: `http://7.225.29.223:8080/api/houses/HF_2001/terminate?listing_platform=%E9%93%BE%E5%AE%B6`
 * headers: `{ "X-User-ID": "d00640449" }`
 * payload: `null`
 
 **Take offline on 58**
 
 * method: `POST`
-* url: `http://7.197.86.219:8080/api/houses/HF_2001/offline?listing_platform=58%E5%90%8C%E5%9F%8E`
+* url: `http://7.225.29.223:8080/api/houses/HF_2001/offline?listing_platform=58%E5%90%8C%E5%9F%8E`
 * headers: `{ "X-User-ID": "d00640449" }`
 * payload: `null`
 
