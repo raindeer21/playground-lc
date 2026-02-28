@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -20,6 +21,12 @@ root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 root_logger.handlers.clear()
 
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setFormatter(
+    logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+)
+root_logger.addHandler(stream_handler)
+
 access_file_handler = logging.FileHandler(access_log_file, encoding="utf-8")
 access_file_handler.setFormatter(
     logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
@@ -36,7 +43,12 @@ if not agent_chat_logger.handlers:
     file_handler.setFormatter(
         logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
     )
+    terminal_handler = logging.StreamHandler(sys.stdout)
+    terminal_handler.setFormatter(
+        logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+    )
     agent_chat_logger.addHandler(file_handler)
+    agent_chat_logger.addHandler(terminal_handler)
 agent_chat_logger.setLevel(logging.INFO)
 agent_chat_logger.propagate = False
 
