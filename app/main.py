@@ -15,11 +15,18 @@ from app.agent import AgentRuntime
 
 
 app = FastAPI(title="Skill-aware Agent API")
-runtime = AgentRuntime()
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+access_log_file = Path(__file__).resolve().parent / "access.log"
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+root_logger.handlers.clear()
+
+access_file_handler = logging.FileHandler(access_log_file, encoding="utf-8")
+access_file_handler.setFormatter(
+    logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 )
+root_logger.addHandler(access_file_handler)
+
+runtime = AgentRuntime()
 logger = logging.getLogger(__name__)
 
 agent_chat_logger = logging.getLogger("agent_chat")
