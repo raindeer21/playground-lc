@@ -44,7 +44,7 @@ class AgentRuntime:
 
     async def chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         max_steps: int = 12,
         model: str | None = None,
         session_id: str | None = None,
@@ -112,7 +112,7 @@ class AgentRuntime:
         self._log_conversation(messages, error_response)
         return error_response
 
-    def _log_conversation(self, messages: list[dict[str, str]], response: dict[str, Any]) -> None:
+    def _log_conversation(self, messages: list[dict[str, Any]], response: dict[str, Any]) -> None:
         logger = getattr(self, "_logger", logging.getLogger(__name__))
         payload = {
             "timestamp": datetime.now(UTC).isoformat(),
@@ -180,7 +180,7 @@ class AgentRuntime:
         )
 
     @staticmethod
-    def _convert_messages(messages: list[dict[str, str]]) -> list[BaseMessage]:
+    def _convert_messages(messages: list[dict[str, Any]]) -> list[BaseMessage]:
         converted: list[BaseMessage] = []
         for message in messages:
             role = message["role"]
@@ -188,7 +188,13 @@ class AgentRuntime:
             if role == "system":
                 converted.append(SystemMessage(content=content))
             elif role == "assistant":
-                converted.append(AIMessage(content=content))
+                tool_calls = message.get("tool_calls")
+                if isinstance(tool_calls, list):
+                    converted.append(AIMessage(content=content, tool_calls=tool_calls))
+                else:
+                    converted.append(AIMessage(content=content))
+            elif role == "tool":
+                converted.append(ToolMessage(content=content, tool_call_id=message.get("tool_call_id", "")))
             else:
                 converted.append(HumanMessage(content=content))
         return converted
