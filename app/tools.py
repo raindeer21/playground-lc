@@ -86,12 +86,12 @@ def get_skills(
     return json.dumps(payload)
 
 
-@mcp.tool(
-    name="get_skills",
-    description="Return full SKILL.md content for one or more skill_ids. Prefer skill_ids to fetch multiple skills in one call.",
-)
-def get_skills_mcp(skill_id: str | None = None, skill_ids: list[str] | None = None) -> str:
-    return get_skills(skill_store=_require_skill_store(), skill_id=skill_id, skill_ids=skill_ids)
+# @mcp.tool(
+#     name="get_skills",
+#     description="Return full SKILL.md content for one or more skill_ids. Prefer skill_ids to fetch multiple skills in one call.",
+# )
+# def get_skills_mcp(skill_id: str | None = None, skill_ids: list[str] | None = None) -> str:
+#     return get_skills(skill_store=_require_skill_store(), skill_id=skill_id, skill_ids=skill_ids)
 
 
 def web_request(method: str, url: str, headers: dict[str, str] | None = None, body: str | None = None) -> str:
@@ -125,13 +125,15 @@ def web_request(method: str, url: str, headers: dict[str, str] | None = None, bo
 
 
 @mcp.tool(
-    name="provide_property_result_list",
+    name="current_properties",
     description=(
-        "Return final structured property search results. "
-        "Call this when user asked to find properties and the search is complete."
+        "提供与本次对话相关的房源信息。"
+            "触发条件：用户提出找房/搜索/推荐/筛选房源（按条件过滤）、查看房源详情、对比各平台挂牌信息，"
+            "或执行租房、退租/解除租约、下架等操作；"
+            "也适用于对已讨论过的房源进行总结或再次引用时。"
     ),
 )
-def provide_property_result_list(message: str = "为您找到以下符合条件的房源：", houses: list[str] | None = None) -> str:
+def current_properties(message: str = "为您找到以下符合条件的房源：", houses: list[str] | None = None) -> str:
     payload = ProvidePropertyResultListInput(message=message, houses=houses or [])
     return payload.model_dump_json(ensure_ascii=False)
 
@@ -217,5 +219,5 @@ class AgentTools:
         except Exception:  # noqa: BLE001
             logger.exception("dispatch_tool failed")
             return json.dumps({"error": f"Unknown tool {name}"})
-        logger.info("dispatch_tool finished | name=%s | result_preview=%s", name, result[:500])
+        # logger.info("dispatch_tool finished | name=%s | result_preview=%s", name, result[:500])
         return result

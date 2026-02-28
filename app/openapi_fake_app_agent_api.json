@@ -33,7 +33,7 @@
                         "required": false,
                         "schema": {
                             "type": "string",
-                            "description": "行政区，如 海淀、朝阳"
+                            "description": "限定北京行政区划: 东城、西城、朝阳、丰台、石景山、海淀、门头沟、房山、大兴、通州、顺义、昌平、怀柔、平谷、密云、延庆"
                         }
                     }
                 ]
@@ -87,7 +87,7 @@
                         "required": false,
                         "schema": {
                             "type": "string",
-                            "description": "可选，限定行政区，如 海淀、朝阳"
+                            "description": "限定北京行政区划: 东城、西城、朝阳、丰台、石景山、海淀、门头沟、房山、大兴、通州、顺义、昌平、怀柔、平谷、密云、延庆"
                         }
                     }
                 ]
@@ -159,7 +159,7 @@
             "get": {
                 "operationId": "get_houses_by_community",
                 "summary": "按小区名查询可租房源",
-                "description": "按小区名查询该小区下可租房源。默认每页 10 条、未传 listing_platform 时只返回安居客。用于指代消解、查某小区地铁信息或隐性属性。调用时请求头必带 X-User-ID。",
+                "description": "按小区名查询该小区下可租房源。用于指代消解、查某小区地铁信息或隐性属性。调用时请求头必带 X-User-ID。",
                 "parameters": [
                     {
                         "name": "community",
@@ -196,10 +196,10 @@
                     {
                         "name": "page_size",
                         "in": "query",
-                        "required": false,
+                        "required": true,
                         "schema": {
                             "type": "integer",
-                            "description": "每页条数，默认 10，最大 10000"
+                            "description": "填写 5"
                         }
                     }
                 ]
@@ -231,7 +231,7 @@
                         "required": false,
                         "schema": {
                             "type": "string",
-                            "description": "行政区，逗号分隔，如 海淀,朝阳"
+                            "description": "限定北京行政区划: 东城、西城、朝阳、丰台、石景山、海淀、门头沟、房山、大兴、通州、顺义、昌平、怀柔、平谷、密云、延庆"
                         }
                     },
                     {
@@ -417,10 +417,10 @@
                     {
                         "name": "page_size",
                         "in": "query",
-                        "required": false,
+                        "required": true,
                         "schema": {
                             "type": "integer",
-                            "description": "每页条数，默认 10，最大 10000"
+                            "description": "填写 5"
                         }
                     }
                 ]
@@ -512,10 +512,10 @@
                     {
                         "name": "page_size",
                         "in": "query",
-                        "required": false,
+                        "required": true,
                         "schema": {
                             "type": "integer",
-                            "description": "每页条数，默认 10，最大 10000"
+                            "description": "填写 5"
                         }
                     }
                 ]
