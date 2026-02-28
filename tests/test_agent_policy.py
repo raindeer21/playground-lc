@@ -90,3 +90,130 @@ def test_langchain_tools_excludes_respond_to_user() -> None:
     tool_names = [tool["function"]["name"] for tool in AgentTools(_DummySkillStore()).langchain_tools()]
 
     assert "respond_to_user" not in tool_names
+
+
+
+def test_serialize_steps_compresses_get_houses_nearby_tool_result() -> None:
+    from langchain_core.messages import AIMessage, ToolMessage
+    from app.agent import _serialize_steps
+
+    output = (
+        "{'code': 0, 'message': 'success', 'data': {"
+        "'landmark': {'id': 'SS_001', 'name': '西二旗站', 'longitude': 116.3289, 'latitude': 40.0567}, "
+        "'total': 2, "
+        "'items': ["
+        "{'house_id': 'HF_36', 'status': 'available', 'distance_to_landmark': 0, 'walking_distance': 0, 'walking_duration': 0, 'listing_platform': '安居客', 'price': 12550}, "
+        "{'house_id': 'HF_37', 'status': 'available', 'distance_to_landmark': 10, 'walking_distance': 50, 'walking_duration': 1, 'listing_platform': '链家', 'price': 8200}"
+        "]}}"
+    )
+
+    history = [
+        AIMessage(content='', tool_calls=[{'id': 'call_1', 'name': 'get_houses_nearby', 'args': {}}]),
+        ToolMessage(content=output, tool_call_id='call_1'),
+    ]
+
+    steps = _serialize_steps(history)
+    compressed = json.loads(steps[1]['content'])
+
+    assert compressed['data']['landmark'] == {'id': 'SS_001', 'name': '西二旗站'}
+    assert compressed['data']['items'] == [
+        {
+            'house_id': 'HF_36',
+            'status': 'available',
+            'distance_to_landmark': 0,
+            'walking_distance': 0,
+            'walking_duration': 0,
+            'listing_platform': '安居客',
+        },
+        {
+            'house_id': 'HF_37',
+            'status': 'available',
+            'distance_to_landmark': 10,
+            'walking_distance': 50,
+            'walking_duration': 1,
+            'listing_platform': '链家',
+        },
+    ]
+
+
+def test_serialize_steps_keeps_other_tool_result_unmodified() -> None:
+    from langchain_core.messages import AIMessage, ToolMessage
+    from app.agent import _serialize_steps
+
+    output = '{"foo": "bar", "data": {"landmark": {"id": "x"}, "items": []}}'
+
+    history = [
+        AIMessage(content='', tool_calls=[{'id': 'call_2', 'name': 'current_properties', 'args': {}}]),
+        ToolMessage(content=output, tool_call_id='call_2'),
+    ]
+
+    steps = _serialize_steps(history)
+    assert steps[1]['content'] == output
+
+
+
+def test_serialize_steps_compresses_get_houses_by_platform_tool_result() -> None:
+    from langchain_core.messages import AIMessage, ToolMessage
+    from app.agent import _serialize_steps
+
+    output = (
+        "{'code': 0, 'message': 'success', 'data': {'total': 108, 'page': 1, 'page_size': 5, 'items': ["
+        "{'house_id': 'HF_3', 'community': '建清园(南区)', 'status': 'available', 'price': 7600}, "
+        "{'house_id': 'HF_33', 'community': '车道沟南里小区', 'status': 'available', 'price': 5500}"
+        "]}}"
+    )
+
+    history = [
+        AIMessage(content='', tool_calls=[{'id': 'call_3', 'name': 'get_houses_by_platform', 'args': {}}]),
+        ToolMessage(content=output, tool_call_id='call_3'),
+    ]
+
+    steps = _serialize_steps(history)
+    compressed = json.loads(steps[1]['content'])
+
+    assert compressed['data']['total'] == 108
+    assert compressed['data']['page'] == 1
+    assert compressed['data']['page_size'] == 5
+    assert compressed['data']['items'] == [
+        {'house_id': 'HF_3', 'status': 'available'},
+        {'house_id': 'HF_33', 'status': 'available'},
+    ]
+
+
+
+def test_serialize_steps_compresses_get_houses_by_community_tool_result() -> None:
+    from langchain_core.messages import AIMessage, ToolMessage
+    from app.agent import _serialize_steps
+
+    output = (
+        "{'code': 0, 'message': 'success', 'data': {'total': 5, 'page': 1, 'page_size': 5, 'items': ["
+        "{'house_id': 'HF_36', 'community': '智学苑', 'listing_platform': '安居客', 'status': 'available', 'price': 12550}, "
+        "{'house_id': 'HF_37', 'community': '智学苑', 'listing_platform': '安居客', 'status': 'available', 'price': 8200}"
+        "]}}"
+    )
+
+    history = [
+        AIMessage(content='', tool_calls=[{'id': 'call_4', 'name': 'get_houses_by_community', 'args': {}}]),
+        ToolMessage(content=output, tool_call_id='call_4'),
+    ]
+
+    steps = _serialize_steps(history)
+    compressed = json.loads(steps[1]['content'])
+
+    assert compressed['data']['total'] == 5
+    assert compressed['data']['page'] == 1
+    assert compressed['data']['page_size'] == 5
+    assert compressed['data']['items'] == [
+        {
+            'house_id': 'HF_36',
+            'community': '智学苑',
+            'listing_platform': '安居客',
+            'status': 'available',
+        },
+        {
+            'house_id': 'HF_37',
+            'community': '智学苑',
+            'listing_platform': '安居客',
+            'status': 'available',
+        },
+    ]
