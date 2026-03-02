@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import time
 from collections import defaultdict
@@ -13,6 +14,8 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 import uvicorn
 from app.agent import AgentRuntime
+from app.agent_google_adk import GoogleADKAgentRuntime
+from app.runtime_base import BaseAgentRuntime
 
 
 app = FastAPI(title="Skill-aware Agent API")
@@ -33,7 +36,16 @@ access_file_handler.setFormatter(
 )
 root_logger.addHandler(access_file_handler)
 
-runtime = AgentRuntime()
+
+
+def _build_runtime() -> BaseAgentRuntime:
+    backend = os.getenv("AGENT_RUNTIME_BACKEND", "langchain").strip().lower()
+    if backend == "google_adk":
+        return GoogleADKAgentRuntime()
+    return AgentRuntime()
+
+
+runtime: BaseAgentRuntime = _build_runtime()
 logger = logging.getLogger(__name__)
 
 agent_chat_logger = logging.getLogger("agent_chat")
