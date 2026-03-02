@@ -218,6 +218,7 @@ def get_houses_by_platform_simple(
     sort_order: Annotated[str | None, Field(description="排序顺序：asc/desc")] = None,
     page: Annotated[int | None, Field(description="页码")] = 1,
     page_size: Annotated[int, Field(description="每页数量")] = 5,
+    detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
 ) -> str:
     params = HouseSearchInput(
         district=district,
@@ -250,6 +251,7 @@ def get_houses_by_platform_simple(
 
     platforms = ["链家", "安居客", "58同城"]
     houses: list[dict[str, str]] = []
+    raw_results: list[dict[str, object]] = []
     errors: list[dict[str, str]] = []
 
     with httpx.Client(base_url=server, timeout=20, trust_env=False, headers={"X-User-ID": "d00640449"}) as client:
@@ -259,18 +261,19 @@ def get_houses_by_platform_simple(
                 response = client.get("/api/houses/by_platform", params=request_params)
                 response.raise_for_status()
                 payload = response.json()
+                if detailed:
+                    raw_results.append({"platform": platform, "result": payload})
                 house_ids = _extract_house_ids(payload)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("house_search failed for platform=%s", platform)
                 errors.append({"platform": platform, "error": str(exc)})
                 house_ids = []
 
-            for house_id in house_ids:
-                houses.append({"houseid": house_id, "platform": platform})
+            if not detailed:
+                for house_id in house_ids:
+                    houses.append({"houseid": house_id, "platform": platform})
 
-    result: dict[str, object] = {
-        "houses": houses,
-    }
+    result: dict[str, object] = {"raw_results": raw_results} if detailed else {"houses": houses}
     if errors:
         result["errors"] = errors
     return json.dumps(result, ensure_ascii=False)
@@ -288,6 +291,7 @@ def get_houses_nearby_simple(
     max_distance: Annotated[int | None, Field(description="最大距离（米）")] = None,
     page: Annotated[int | None, Field(description="页码")] = 1,
     page_size: Annotated[int, Field(description="每页数量")] = 5,
+    detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
 ) -> str:
     params = HouseNearbySearchInput(
         landmark_id=landmark_id,
@@ -302,6 +306,7 @@ def get_houses_nearby_simple(
 
     platforms = ["链家", "安居客", "58同城"]
     houses: list[dict[str, str]] = []
+    raw_results: list[dict[str, object]] = []
     errors: list[dict[str, str]] = []
 
     with httpx.Client(base_url=server, timeout=20, trust_env=False, headers={"X-User-ID": "d00640449"}) as client:
@@ -311,18 +316,19 @@ def get_houses_nearby_simple(
                 response = client.get("/api/houses/nearby", params=request_params)
                 response.raise_for_status()
                 payload = response.json()
+                if detailed:
+                    raw_results.append({"platform": platform, "result": payload})
                 house_ids = _extract_house_ids(payload)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("get_houses_list_nearby failed for platform=%s", platform)
                 errors.append({"platform": platform, "error": str(exc)})
                 house_ids = []
 
-            for house_id in house_ids:
-                houses.append({"houseid": house_id, "platform": platform})
+            if not detailed:
+                for house_id in house_ids:
+                    houses.append({"houseid": house_id, "platform": platform})
 
-    result: dict[str, object] = {
-        "houses": houses,
-    }
+    result: dict[str, object] = {"raw_results": raw_results} if detailed else {"houses": houses}
     if errors:
         result["errors"] = errors
     return json.dumps(result, ensure_ascii=False)
@@ -336,6 +342,7 @@ def get_houses_list_by_community(
     community: Annotated[str, Field(description="小区名")],
     page: Annotated[int | None, Field(description="页码")] = 1,
     page_size: Annotated[int, Field(description="每页数量")] = 5,
+    detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
 ) -> str:
     params = HouseCommunitySearchInput(
         community=community,
@@ -349,6 +356,7 @@ def get_houses_list_by_community(
 
     platforms = ["链家", "安居客", "58同城"]
     houses: list[dict[str, str]] = []
+    raw_results: list[dict[str, object]] = []
     errors: list[dict[str, str]] = []
 
     with httpx.Client(base_url=server, timeout=20, trust_env=False, headers={"X-User-ID": "d00640449"}) as client:
@@ -358,18 +366,19 @@ def get_houses_list_by_community(
                 response = client.get("/api/houses/by_community", params=request_params)
                 response.raise_for_status()
                 payload = response.json()
+                if detailed:
+                    raw_results.append({"platform": platform, "result": payload})
                 house_ids = _extract_house_ids(payload)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("get_houses_list_by_community failed for platform=%s", platform)
                 errors.append({"platform": platform, "error": str(exc)})
                 house_ids = []
 
-            for house_id in house_ids:
-                houses.append({"houseid": house_id, "platform": platform})
+            if not detailed:
+                for house_id in house_ids:
+                    houses.append({"houseid": house_id, "platform": platform})
 
-    result: dict[str, object] = {
-        "houses": houses,
-    }
+    result: dict[str, object] = {"raw_results": raw_results} if detailed else {"houses": houses}
     if errors:
         result["errors"] = errors
     return json.dumps(result, ensure_ascii=False)
