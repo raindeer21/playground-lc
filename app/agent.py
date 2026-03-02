@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import ast
 import json
 import logging
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,11 +9,13 @@ import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
+from app.runtime_base import BaseAgentRuntime
+from app.runtime_helpers import compress_tool_result
 from app.skills import SkillStore
 from app.tools import AgentTools
 import asyncio
 
-class AgentRuntime:
+class AgentRuntime(BaseAgentRuntime):
     def __init__(
         self,
         model: str = "qwen3-32b",
@@ -23,9 +23,9 @@ class AgentRuntime:
         skills_dir: str = "skills",
         conversation_log_path: str | Path = "logs/agent_conversations.jsonl",
     ) -> None:
+        super().__init__(conversation_log_path=conversation_log_path)
         self.skill_store = SkillStore(skills_dir)
         self.tools = AgentTools(self.skill_store)
-        self.conversation_log_path = Path(conversation_log_path)
         self._logger = logging.getLogger(__name__)
         self.default_model = model
         self.default_base_url = "http://api.openai.rnd.huawei.com/v1/"
@@ -78,8 +78,8 @@ class AgentRuntime:
             if not ai_message.tool_calls:
                 response = {
                     "message": str(ai_message.content),
-                    "steps": _serialize_steps(history),
-                    "compressed_steps": _serialize_steps(history)
+                    "steps": self._serialize_steps(history),
+                    "compressed_steps": self._serialize_steps(history, compressed=True)
                 }
                 self._logger.info("Agent completed with direct LLM response at step %s", step + 1)
                 self._log_conversation(messages, response)
@@ -95,12 +95,7 @@ class AgentRuntime:
                 result = await self.tools.dispatch_tool(call["name"], call["args"])
 
                 tool_name = call["name"]
-                if tool_name == "get_houses_nearby":
-                    result = _compress_get_houses_nearby_result(result)
-                elif tool_name == "get_houses_by_platform":
-                    result = _compress_get_houses_by_platform_result(result)
-                elif tool_name == "get_houses_by_community":
-                    result = _compress_get_houses_by_community_result(result)
+                result = compress_tool_result(tool_name, result)
 
                 self._logger.info(
                     "Tool result | step=%s | tool=%s | result=%s",
@@ -113,8 +108,8 @@ class AgentRuntime:
                 if call["name"] in ("current_properties", ) and len(ai_message.tool_calls) <= 1:
                     response = {
                         "message": str(ai_message.content),
-                        "steps": _serialize_steps(history),
-                        "compressed_steps": _serialize_steps(history)
+                        "steps": self._serialize_steps(history),
+                        "compressed_steps": self._serialize_steps(history, compressed=True)
                     }
                     self._logger.info("Agent completed with direct LLM response at step %s", step + 1)
                     self._log_conversation(messages, response)
@@ -124,21 +119,6 @@ class AgentRuntime:
         error_response = {"error": "Agent hit max_steps without producing a direct response."}
         self._log_conversation(messages, error_response)
         return error_response
-
-    def _log_conversation(self, messages: list[dict[str, Any]], response: dict[str, Any]) -> None:
-        logger = getattr(self, "_logger", logging.getLogger(__name__))
-        payload = {
-            "timestamp": datetime.now(UTC).isoformat(),
-            "messages": messages,
-            "response": response,
-        }
-        try:
-            self.conversation_log_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.conversation_log_path.open("a", encoding="utf-8") as fp:
-                fp.write(f"{json.dumps(payload, ensure_ascii=False)}\n")
-            logger.info("Conversation logged to %s", self.conversation_log_path)
-        except OSError:
-            logger.exception("Failed to write conversation log")
 
     def _system_message(self) -> SystemMessage:
         headers = self.skill_store.headers()
@@ -210,172 +190,3 @@ class AgentRuntime:
             else:
                 converted.append(HumanMessage(content=content))
         return converted
-
-
-def _serialize_steps_compressed(history: list[BaseMessage]) -> list[dict[str, Any]]:
-    steps: list[dict[str, Any]] = []
-    tool_call_name_by_id: dict[str, str] = {}
-
-    for msg in history:
-        if isinstance(msg, AIMessage) and msg.tool_calls:
-            for call in msg.tool_calls:
-                call_id = call.get("id")
-                call_name = call.get("name")
-                if isinstance(call_id, str) and isinstance(call_name, str):
-                    tool_call_name_by_id[call_id] = call_name
-            steps.append({"type": "tool_calls", "tool_calls": msg.tool_calls})
-        elif isinstance(msg, ToolMessage):
-            # if msg.name in ("current_properties", ):
-            #     continue
-            content: Any = msg.content
-            tool_name = msg.name
-            if tool_name == "get_houses_nearby":
-                content = _compress_get_houses_nearby_result(msg.content)
-            elif tool_name == "get_houses_by_platform":
-                content = _compress_get_houses_by_platform_result(msg.content)
-            elif tool_name == "get_houses_by_community":
-                content = _compress_get_houses_by_community_result(msg.content)
-            steps.append({"type": "tool_result",
-                          "content": content,
-                          "tool_call_id": msg.tool_call_id,
-                          "status": msg.status})
-
-    return steps
-
-def _serialize_steps(history: list[BaseMessage]) -> list[dict[str, Any]]:
-    steps: list[dict[str, Any]] = []
-    tool_call_name_by_id: dict[str, str] = {}
-    for msg in history:
-        if isinstance(msg, AIMessage) and msg.tool_calls:
-            for call in msg.tool_calls:
-                call_id = call.get("id")
-                call_name = call.get("name")
-                if isinstance(call_id, str) and isinstance(call_name, str):
-                    tool_call_name_by_id[call_id] = call_name
-            steps.append({"type": "tool_calls", "tool_calls": msg.tool_calls})
-        elif isinstance(msg, ToolMessage):
-            content: Any = msg.content
-            steps.append({"type": "tool_result",
-                          "content": content,
-                          "tool_call_id": msg.tool_call_id,
-                          "status": msg.status})
-    return steps
-
-
-def _parse_tool_payload(content: Any) -> dict[str, Any] | None:
-    if not isinstance(content, str):
-        return None
-
-    for parser in (json.loads, ast.literal_eval):
-        try:
-            candidate = parser(content)
-            if isinstance(candidate, dict):
-                return candidate
-        except (json.JSONDecodeError, ValueError, SyntaxError):
-            continue
-    return None
-
-
-def _compress_get_houses_nearby_result(content: Any) -> Any:
-    payload = _parse_tool_payload(content)
-    if payload is None:
-        return content
-
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        return content
-
-    landmark = data.get("landmark")
-    items = data.get("items")
-    if not isinstance(items, list):
-        return content
-
-    compressed_landmark = {}
-    if isinstance(landmark, dict):
-        compressed_landmark = {
-            "id": landmark.get("id"),
-            "name": landmark.get("name"),
-        }
-
-    compressed_items: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        compressed_items.append(
-            {
-                "house_id": item.get("house_id"),
-                "status": item.get("status"),
-                "distance_to_landmark": item.get("distance_to_landmark"),
-                "walking_distance": item.get("walking_distance"),
-                "walking_duration": item.get("walking_duration"),
-                "listing_platform": item.get("listing_platform"),
-            }
-        )
-
-    payload["data"] = {
-        "landmark": compressed_landmark,
-        "items": compressed_items,
-    }
-
-    return json.dumps(payload, ensure_ascii=False)
-
-
-def _compress_get_houses_by_platform_result(content: Any) -> Any:
-    payload = _parse_tool_payload(content)
-    if payload is None:
-        return content
-
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        return content
-
-    items = data.get("items")
-    if not isinstance(items, list):
-        return content
-
-    compressed_items: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        compressed_items.append(
-            {
-                "house_id": item.get("house_id"),
-                "status": item.get("status"),
-            }
-        )
-
-    data["items"] = compressed_items
-    payload["data"] = data
-    return json.dumps(payload, ensure_ascii=False)
-
-
-
-def _compress_get_houses_by_community_result(content: Any) -> Any:
-    payload = _parse_tool_payload(content)
-    if payload is None:
-        return content
-
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        return content
-
-    items = data.get("items")
-    if not isinstance(items, list):
-        return content
-
-    compressed_items: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        compressed_items.append(
-            {
-                "house_id": item.get("house_id"),
-                "community": item.get("community"),
-                "listing_platform": item.get("listing_platform"),
-                "status": item.get("status"),
-            }
-        )
-
-    data["items"] = compressed_items
-    payload["data"] = data
-    return json.dumps(payload, ensure_ascii=False)
