@@ -136,23 +136,20 @@ def _extract_tool_results(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return tool_results
 
 
-def _extract_property_result(tool_results: list[dict[str, Any]]) -> dict[str, Any] | None:
-    for item in reversed(tool_results):
-        if item.get("name") != "current_properties":
-            continue
-        try:
-            parsed = item.get("output")
-            if isinstance(parsed, str):
-                payload = json.loads(parsed)
-            elif isinstance(parsed, dict):
-                payload = parsed
-            else:
-                continue
-            if isinstance(payload, dict) and isinstance(payload.get("houses", []), list):
-                return payload
-        except Exception:
-            continue
-    return None
+def _parse_property_response(content: str) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(content)
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    message = payload.get("message")
+    houses = payload.get("houses")
+    if not isinstance(message, str) or not isinstance(houses, list):
+        return None
+    return {"message": message, "houses": houses}
 
 
 def _build_history_entries(result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -258,9 +255,14 @@ async def agent_chat(request: AgentChatRequest):
         "timestamp": timestamp,
         "duration_ms": duration_ms,
     }
-    property_result = _extract_property_result(tool_results)
+    property_result = _parse_property_response(result.get("message", ""))
     if property_result is not None:
-        response_payload["response"] = json.dumps(property_result, ensure_ascii=False)
+        if property_result["houses"]:
+            response_payload["response"] = json.dumps(property_result, ensure_ascii=False)
+            response_payload["message"] = property_result["message"]
+            response_payload["houses"] = property_result["houses"]
+        else:
+            response_payload["response"] = property_result["message"]
 
     logger.info(f"Final Response | {response_payload}")
     agent_chat_logger.info("response=%s", json.dumps(response_payload, ensure_ascii=False))
