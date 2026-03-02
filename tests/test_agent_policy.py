@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -220,10 +221,12 @@ def test_serialize_steps_compresses_get_houses_by_community_tool_result() -> Non
 
 
 def test_format_final_content_returns_message_only_when_houses_empty() -> None:
+    runtime = AgentRuntime.__new__(AgentRuntime)
     payload = '{"message":"暂无符合条件的房源","houses":[]}'
-    assert AgentRuntime._format_final_content(payload) == "暂无符合条件的房源"
+    assert asyncio.run(runtime._format_final_content(payload, None)) == "暂无符合条件的房源"
 
 
 def test_format_final_content_returns_json_when_houses_present() -> None:
+    runtime = AgentRuntime.__new__(AgentRuntime)
     payload = '{"message":"为您找到以下符合条件的房源：","houses":["HF_1"]}'
-    assert json.loads(AgentRuntime._format_final_content(payload)) == json.loads(payload)
+    assert json.loads(asyncio.run(runtime._format_final_content(payload, None))) == json.loads(payload)
