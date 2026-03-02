@@ -245,3 +245,34 @@ def test_format_final_content_filters_non_string_house_ids() -> None:
         "message": "为您找到房源",
         "houses": ["HF_1"],
     }
+
+
+def test_parse_selected_skill_ids_filters_unknown_and_duplicates() -> None:
+    headers = [
+        {"skill_id": "rental-house-search", "name": "search", "description": ""},
+        {"skill_id": "rental-house-actions", "name": "actions", "description": ""},
+    ]
+
+    parsed = AgentRuntime._parse_selected_skill_ids(
+        '["rental-house-search", "unknown", "rental-house-search", "rental-house-actions"]',
+        headers,
+    )
+
+    assert parsed == ["rental-house-search", "rental-house-actions"]
+
+
+def test_system_prompt_contains_skill_select_block() -> None:
+    runtime = AgentRuntime.__new__(AgentRuntime)
+
+    class _DummySkillStore:
+        def headers(self):
+            return [{"skill_id": "rental-house-search", "name": "search", "description": "..."}]
+
+    runtime.skill_store = _DummySkillStore()
+
+    system_message = runtime._system_message(selected_skills=["rental-house-search"])
+    content = system_message.content
+
+    assert "SKILL_HEADERS" in content
+    assert "SKILL_SELECT" in content
+    assert "rental-house-search" in content

@@ -16,6 +16,7 @@ class Skill:
     description: str
     body: str
     path: Path
+    tool_whitelist: list[str]
 
 
 class SkillStore:
@@ -23,8 +24,7 @@ class SkillStore:
         self._logger = logging.getLogger(__name__)
         self._logger.setLevel(logging.DEBUG)
         self.root = Path(root)
-        self._skills = {}
-        # self._skills = self._load_skills()
+        self._skills = self._load_skills()
         self._logger.info(f"Skills loaded: {self._skills}")
 
     def _load_skills(self) -> dict[str, Skill]:
@@ -43,6 +43,7 @@ class SkillStore:
                 description=frontmatter.get("description", ""),
                 body=text,
                 path=skill_md,
+                tool_whitelist=_parse_allowed_tools(frontmatter),
             )
 
         return skills
@@ -63,6 +64,19 @@ class SkillStore:
     def all(self) -> Iterable[Skill]:
         return self._skills.values()
 
+    def tool_whitelist_for(self, skill_ids: list[str]) -> set[str] | None:
+        if not skill_ids:
+            return None
+
+        tool_names: set[str] = set()
+        for skill_id in skill_ids:
+            skill = self._skills.get(skill_id)
+            if not skill:
+                continue
+            tool_names.update(skill.tool_whitelist)
+
+        return tool_names or None
+
 
 def _extract_frontmatter(text: str) -> dict[str, str]:
     match = _FRONTMATTER_RE.match(text)
@@ -76,3 +90,22 @@ def _extract_frontmatter(text: str) -> dict[str, str]:
         key, value = raw_line.split(":", 1)
         frontmatter[key.strip()] = value.strip()
     return frontmatter
+
+
+def _parse_allowed_tools(frontmatter: dict[str, str]) -> list[str]:
+    raw = frontmatter.get("allowed-tools") or frontmatter.get("allowed_tools")
+    if not raw:
+        return []
+
+    normalized = []
+    for item in re.split(r"[,\n]", raw):
+        name = item.strip().strip("[]\"'")
+        if not name:
+            continue
+        normalized.append(_normalize_tool_name(name))
+    return normalized
+
+
+def _normalize_tool_name(name: str) -> str:
+    converted = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    return converted.replace("-", "_").lower()
