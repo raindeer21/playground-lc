@@ -230,3 +230,18 @@ def test_format_final_content_returns_json_when_houses_present() -> None:
     runtime = AgentRuntime.__new__(AgentRuntime)
     payload = '{"message":"为您找到以下符合条件的房源：","houses":["HF_1"]}'
     assert json.loads(asyncio.run(runtime._format_final_content(payload, None))) == json.loads(payload)
+
+
+def test_format_final_content_handles_markdown_json_block() -> None:
+    runtime = AgentRuntime.__new__(AgentRuntime)
+    payload = '```json\n{"message":"您好","houses":[]}\n```'
+    assert asyncio.run(runtime._format_final_content(payload, None)) == "您好"
+
+
+def test_format_final_content_filters_non_string_house_ids() -> None:
+    runtime = AgentRuntime.__new__(AgentRuntime)
+    payload = '{"message":"为您找到房源","houses":["HF_1", 2, null]}'
+    assert json.loads(asyncio.run(runtime._format_final_content(payload, None))) == {
+        "message": "为您找到房源",
+        "houses": ["HF_1"],
+    }

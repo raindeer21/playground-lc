@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -177,13 +178,22 @@ class AgentRuntime(BaseAgentRuntime):
         )
 
     async def _format_final_content(self, content: Any, structured_llm: Any | None = None) -> str:
-        text = str(content)
+        text = str(content).strip()
+        cleaned_text = self._strip_markdown_code_fence(text)
+
+        parsed = self._parse_property_answer(cleaned_text)
+        if parsed is not None:
+            message, houses = parsed
+            if not houses:
+                return message
+            return json.dumps({"message": message, "houses": houses}, ensure_ascii=False)
 
         if structured_llm is not None:
             try:
                 normalized: PropertyAnswer = structured_llm.invoke(
                     "请将以下租房助手回复规范化为结构化输出。"
                     "必须返回 message 和 houses 字段，houses 仅保留房源ID字符串列表。"
+                    "仅输出纯 JSON，不要使用 markdown 代码块。"
                     f"原始回复：{text}"
                 )
                 if normalized.houses:
@@ -195,21 +205,37 @@ class AgentRuntime(BaseAgentRuntime):
             except Exception:
                 self._logger.exception("Structured output normalization failed")
 
+        return cleaned_text
+
+    @staticmethod
+    def _strip_markdown_code_fence(text: str) -> str:
+        candidate = text.strip()
+        if not candidate.startswith("```"):
+            return candidate
+
+        fence_match = re.match(r"^```(?:json)?\s*\n?(.*?)\n?```$", candidate, flags=re.DOTALL)
+        if fence_match:
+            return fence_match.group(1).strip()
+
+        return candidate
+
+    @staticmethod
+    def _parse_property_answer(text: str) -> tuple[str, list[str]] | None:
         try:
             payload = json.loads(text)
         except Exception:
-            return text
+            return None
 
         if not isinstance(payload, dict):
-            return text
+            return None
 
         message = payload.get("message")
         houses = payload.get("houses")
         if not isinstance(message, str) or not isinstance(houses, list):
-            return text
-        if not houses:
-            return message
-        return json.dumps({"message": message, "houses": houses}, ensure_ascii=False)
+            return None
+
+        house_ids = [item for item in houses if isinstance(item, str)]
+        return message, house_ids
 
     @staticmethod
     def _convert_messages(messages: list[dict[str, Any]]) -> list[BaseMessage]:
