@@ -12,7 +12,7 @@ def test_system_prompt_includes_rental_requirement_policy() -> None:
 
     class _DummySkillStore:
         def headers(self):
-            return [{"skill_id": "rental-house-search", "name": "search", "description": "..."}]
+            return [{"skill_id": "property_search", "name": "search", "description": "..."}]
 
     runtime.skill_store = _DummySkillStore()
 
@@ -249,16 +249,16 @@ def test_format_final_content_filters_non_string_house_ids() -> None:
 
 def test_parse_selected_skill_ids_filters_unknown_and_duplicates() -> None:
     headers = [
-        {"skill_id": "rental-house-search", "name": "search", "description": ""},
-        {"skill_id": "rental-house-actions", "name": "actions", "description": ""},
+        {"skill_id": "property_search", "name": "search", "description": ""},
+        {"skill_id": "property_management", "name": "actions", "description": ""},
     ]
 
     parsed = AgentRuntime._parse_selected_skill_ids(
-        '["rental-house-search", "unknown", "rental-house-search", "rental-house-actions"]',
+        '["property_search", "unknown", "property_search", "property_management"]',
         headers,
     )
 
-    assert parsed == ["rental-house-search", "rental-house-actions"]
+    assert parsed == ["property_search", "property_management"]
 
 
 def test_system_prompt_contains_skill_select_block() -> None:
@@ -266,13 +266,13 @@ def test_system_prompt_contains_skill_select_block() -> None:
 
     class _DummySkillStore:
         def headers(self):
-            return [{"skill_id": "rental-house-search", "name": "search", "description": "..."}]
+            return [{"skill_id": "property_search", "name": "search", "description": "..."}]
 
     runtime.skill_store = _DummySkillStore()
 
-    system_message = runtime._system_message(selected_skills=["rental-house-search"])
+    system_message = runtime._system_message(selected_skills=["property_search"])
     content = system_message.content
 
     assert "SKILL_HEADERS" in content
     assert "SKILL_SELECT" in content
-    assert "rental-house-search" in content
+    assert "property_search" in content
