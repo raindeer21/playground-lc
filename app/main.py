@@ -192,7 +192,7 @@ async def agent_chat(request: AgentChatRequest):
     history.append({"role": "user", "content": request.message})
 
     if request.model_ip:
-        base_url = f"http://{request.model_ip}:8888/v1"
+        base_url = request.model_ip if request.model_ip.startswith("http") else f"http://{request.model_ip}:8888/v1"
     else:
         base_url = "http://api.openai.rnd.huawei.com/v1"
 

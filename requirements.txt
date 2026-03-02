@@ -7,3 +7,4 @@ fastmcp>=3.0.0
 pytest>=8.0.0
 pydantic
 langchain-core
+google-adk>=0.1.0
