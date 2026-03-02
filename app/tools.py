@@ -189,6 +189,21 @@ def _extract_house_ids(payload: object) -> list[str]:
     return house_ids
 
 
+def _append_house_platform(
+    houses: list[dict[str, object]],
+    house_platforms: dict[str, list[str]],
+    house_id: str,
+    platform: str,
+) -> None:
+    platforms = house_platforms.get(house_id)
+    if platforms is None:
+        house_platforms[house_id] = [platform]
+        houses.append({"houseid": house_id, "platforms": house_platforms[house_id]})
+        return
+    if platform not in platforms:
+        platforms.append(platform)
+
+
 # @mcp.tool(
 #     name="get_houses_by_platform_simple",
 #     description="触发器：不需要具体信息，仅搜索房源列表时优先使用该工具。"
@@ -250,7 +265,8 @@ def get_houses_by_platform_simple(
     server = openapi_spec.get("servers", [{}])[0].get("url", "")
 
     platforms = ["链家", "安居客", "58同城"]
-    houses: list[dict[str, str]] = []
+    houses: list[dict[str, object]] = []
+    house_platforms: dict[str, list[str]] = {}
     raw_results: list[dict[str, object]] = []
     errors: list[dict[str, str]] = []
 
@@ -271,7 +287,7 @@ def get_houses_by_platform_simple(
 
             if not detailed:
                 for house_id in house_ids:
-                    houses.append({"houseid": house_id, "platform": platform})
+                    _append_house_platform(houses, house_platforms, house_id, platform)
 
     result: dict[str, object] = {"raw_results": raw_results} if detailed else {"houses": houses}
     if errors:
@@ -305,7 +321,8 @@ def get_houses_nearby_simple(
     server = openapi_spec.get("servers", [{}])[0].get("url", "")
 
     platforms = ["链家", "安居客", "58同城"]
-    houses: list[dict[str, str]] = []
+    houses: list[dict[str, object]] = []
+    house_platforms: dict[str, list[str]] = {}
     raw_results: list[dict[str, object]] = []
     errors: list[dict[str, str]] = []
 
@@ -326,7 +343,7 @@ def get_houses_nearby_simple(
 
             if not detailed:
                 for house_id in house_ids:
-                    houses.append({"houseid": house_id, "platform": platform})
+                    _append_house_platform(houses, house_platforms, house_id, platform)
 
     result: dict[str, object] = {"raw_results": raw_results} if detailed else {"houses": houses}
     if errors:
@@ -355,7 +372,8 @@ def get_houses_list_by_community(
     server = openapi_spec.get("servers", [{}])[0].get("url", "")
 
     platforms = ["链家", "安居客", "58同城"]
-    houses: list[dict[str, str]] = []
+    houses: list[dict[str, object]] = []
+    house_platforms: dict[str, list[str]] = {}
     raw_results: list[dict[str, object]] = []
     errors: list[dict[str, str]] = []
 
@@ -376,7 +394,7 @@ def get_houses_list_by_community(
 
             if not detailed:
                 for house_id in house_ids:
-                    houses.append({"houseid": house_id, "platform": platform})
+                    _append_house_platform(houses, house_platforms, house_id, platform)
 
     result: dict[str, object] = {"raw_results": raw_results} if detailed else {"houses": houses}
     if errors:
