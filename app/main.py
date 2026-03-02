@@ -152,6 +152,41 @@ def _parse_property_response(content: str) -> dict[str, Any] | None:
     return {"message": message, "houses": houses}
 
 
+def _default_token_usage() -> dict[str, Any]:
+    return {
+        "totals": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "per_step": [],
+    }
+
+
+
+
+def _log_agent_chat_token_usage(session_id: str, token_usage: dict[str, Any]) -> None:
+    totals = token_usage.get("totals", {}) if isinstance(token_usage, dict) else {}
+    per_step = token_usage.get("per_step", []) if isinstance(token_usage, dict) else []
+
+    llm_calls = len(per_step) if isinstance(per_step, list) else 0
+    tool_call_steps = 0
+    final_response_steps = 0
+    if isinstance(per_step, list):
+        tool_call_steps = sum(1 for step in per_step if isinstance(step, dict) and step.get("stage") == "tool_call")
+        final_response_steps = sum(1 for step in per_step if isinstance(step, dict) and step.get("stage") == "final_response")
+
+    total_tokens = totals.get("total_tokens", 0) if isinstance(totals, dict) else 0
+    avg_tokens_per_call = int(total_tokens / llm_calls) if llm_calls else 0
+
+    agent_chat_logger.info(
+        "token_usage_insights | session_id=%s | prompt_tokens=%s | completion_tokens=%s | total_tokens=%s | llm_calls=%s | tool_call_steps=%s | final_response_steps=%s | avg_tokens_per_call=%s",
+        session_id,
+        totals.get("prompt_tokens", 0) if isinstance(totals, dict) else 0,
+        totals.get("completion_tokens", 0) if isinstance(totals, dict) else 0,
+        total_tokens,
+        llm_calls,
+        tool_call_steps,
+        final_response_steps,
+        avg_tokens_per_call,
+    )
+
 def _build_history_entries(result: dict[str, Any]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for step in result.get("compressed_steps", []):
@@ -199,6 +234,7 @@ async def chat_completions(request: ChatCompletionRequest):
             }
         ],
         "steps": result["steps"],
+        "token_usage": result.get("token_usage", _default_token_usage()),
     }
 
 
@@ -237,7 +273,9 @@ async def agent_chat(request: AgentChatRequest):
             "tool_results": [],
             "timestamp": timestamp,
             "duration_ms": duration_ms,
+            "token_usage": _default_token_usage(),
         }
+        _log_agent_chat_token_usage(request.session_id, error_payload["token_usage"])
         agent_chat_logger.info("response=%s", json.dumps(error_payload, ensure_ascii=False))
         return error_payload
 
@@ -254,6 +292,7 @@ async def agent_chat(request: AgentChatRequest):
         "tool_results": tool_results,
         "timestamp": timestamp,
         "duration_ms": duration_ms,
+        "token_usage": result.get("token_usage", _default_token_usage()),
     }
     property_result = _parse_property_response(result.get("message", ""))
     if property_result is not None:
@@ -264,6 +303,7 @@ async def agent_chat(request: AgentChatRequest):
         else:
             response_payload["response"] = property_result["message"]
 
+    _log_agent_chat_token_usage(request.session_id, response_payload["token_usage"])
     logger.info(f"Final Response | {response_payload}")
     agent_chat_logger.info("response=%s", json.dumps(response_payload, ensure_ascii=False))
     return response_payload

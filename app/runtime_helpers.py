@@ -7,6 +7,87 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
 
+def _safe_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, (int, float)):
+        return int(value)
+    return 0
+
+
+def extract_token_usage(ai_message: AIMessage) -> dict[str, int]:
+    usage: dict[str, Any] = {}
+
+    response_metadata = getattr(ai_message, "response_metadata", None)
+    if isinstance(response_metadata, dict):
+        token_usage = response_metadata.get("token_usage")
+        if isinstance(token_usage, dict):
+            usage = token_usage
+
+    if not usage:
+        usage_metadata = getattr(ai_message, "usage_metadata", None)
+        if isinstance(usage_metadata, dict):
+            usage = {
+                "prompt_tokens": usage_metadata.get("input_tokens"),
+                "completion_tokens": usage_metadata.get("output_tokens"),
+                "total_tokens": usage_metadata.get("total_tokens"),
+            }
+
+    prompt_tokens = _safe_int(usage.get("prompt_tokens"))
+    completion_tokens = _safe_int(usage.get("completion_tokens"))
+    total_tokens = _safe_int(usage.get("total_tokens"))
+
+    if total_tokens <= 0:
+        total_tokens = prompt_tokens + completion_tokens
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def analyze_token_usage(history: list[BaseMessage]) -> dict[str, Any]:
+    per_step: list[dict[str, Any]] = []
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    total_tokens = 0
+
+    for msg in history:
+        if not isinstance(msg, AIMessage):
+            continue
+
+        usage = extract_token_usage(msg)
+        if usage["total_tokens"] <= 0:
+            continue
+
+        stage = "tool_call" if msg.tool_calls else "final_response"
+        per_step.append({"stage": stage, **usage})
+        total_prompt_tokens += usage["prompt_tokens"]
+        total_completion_tokens += usage["completion_tokens"]
+        total_tokens += usage["total_tokens"]
+
+    llm_calls = len(per_step)
+    tool_call_steps = sum(1 for item in per_step if item["stage"] == "tool_call")
+    final_response_steps = llm_calls - tool_call_steps
+    avg_tokens_per_call = int(total_tokens / llm_calls) if llm_calls else 0
+
+    return {
+        "totals": {
+            "prompt_tokens": total_prompt_tokens,
+            "completion_tokens": total_completion_tokens,
+            "total_tokens": total_tokens,
+        },
+        "analysis": {
+            "llm_calls": llm_calls,
+            "tool_call_steps": tool_call_steps,
+            "final_response_steps": final_response_steps,
+            "avg_tokens_per_call": avg_tokens_per_call,
+        },
+        "per_step": per_step,
+    }
+
+
 def parse_tool_payload(content: Any) -> dict[str, Any] | None:
     if not isinstance(content, str):
         return None
