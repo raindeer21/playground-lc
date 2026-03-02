@@ -79,6 +79,7 @@ class AgentRuntime:
                 response = {
                     "message": str(ai_message.content),
                     "steps": _serialize_steps(history),
+                    "compressed_steps": _serialize_steps(history)
                 }
                 self._logger.info("Agent completed with direct LLM response at step %s", step + 1)
                 self._log_conversation(messages, response)
@@ -92,6 +93,15 @@ class AgentRuntime:
                     json.dumps(call["args"], ensure_ascii=False),
                 )
                 result = await self.tools.dispatch_tool(call["name"], call["args"])
+
+                tool_name = call["name"]
+                if tool_name == "get_houses_nearby":
+                    result = _compress_get_houses_nearby_result(result)
+                elif tool_name == "get_houses_by_platform":
+                    result = _compress_get_houses_by_platform_result(result)
+                elif tool_name == "get_houses_by_community":
+                    result = _compress_get_houses_by_community_result(result)
+
                 self._logger.info(
                     "Tool result | step=%s | tool=%s | result=%s",
                     step + 1,
@@ -99,11 +109,12 @@ class AgentRuntime:
                     result,
                 )
                 history.append(self._tool_call_system_message())
-                history.append(ToolMessage(content=result, tool_call_id=call["id"]))
+                history.append(ToolMessage(content=result, tool_call_id=call["id"], name=call["name"]))
                 if call["name"] in ("current_properties", ) and len(ai_message.tool_calls) <= 1:
                     response = {
                         "message": str(ai_message.content),
                         "steps": _serialize_steps(history),
+                        "compressed_steps": _serialize_steps(history)
                     }
                     self._logger.info("Agent completed with direct LLM response at step %s", step + 1)
                     self._log_conversation(messages, response)
@@ -141,7 +152,8 @@ class AgentRuntime:
                 "- 在需要时使用工具，帮助用户搜索、对比房源，并执行租房/退租/下架等操作。\n\n"
                 "工具使用规则（TOOL USAGE RULE）\n"
                 "- 如果不需要搜索或操作即可直接回答 -> 直接回答。\n"
-                "- 如果用户要求推荐/查询房源且约束条件清晰 -> 必须使用工具搜索。\n"
+                "- 如果用户要求推荐/查询房源且约束条件清晰，且历史中没有搜索过该房源 -> 必须使用工具搜索。\n"
+                "- 如果历史已经搜索过该房源 -> 禁止重新搜索，仅可使用 get_house_listings 获取更多信息。\n"
                 "- 严禁编造/臆测任何房源信息；只能使用工具返回的结果。\n\n"
                 "意图与必做行为（INTENTS & REQUIRED BEHAVIOR）\n\n"
                 "1）搜索意图（SEARCH：用户说找/推荐/看看/查询房源等）\n"
@@ -163,7 +175,7 @@ class AgentRuntime:
                 "状态同步要求（STATE SYNC REQUIREMENT）\n"
                 "非常重要（VERY IMPORTANT）：\n"
                 "- 只要你的回答中提到任何房源（无论是搜索结果/推荐/正在处理的房源）：\n"
-                "  - **必须调用 `current_properties`，并传入相关 house_ids。**\n\n"
+                "  - **如果这次回复你没有调用其他工具，则必须调用 `current_properties`，并传入相关 house_ids。**\n\n"
                 "输出质量规则（OUTPUT QUALITY RULES）\n"
                 "- 表达要简洁、可操作：给出最优选项、原因、权衡点、下一步建议。\n"
                 "- 最终推荐房源不超过 5 个。\n"
@@ -175,9 +187,7 @@ class AgentRuntime:
             content=(
                 "特别提醒（IMPORTANT）：\n"
                 "- 只要你的回答中提到任何房源（无论是搜索结果/推荐/正在处理的房源）：\n"
-                "  - **必须调用 `current_properties`，并传入相关的 house_ids。**\n\n"
-                "- 表达要简洁、可执行：给出最佳选项、为什么合适、关键权衡点、下一步怎么做。\n"
-                "- 最终推荐房源数量不超过 5 个。\n"
+                "  - **如果这次回复你没有调用其他工具，则必须调用 `current_properties`，并传入相关 house_ids。**\n\n"
             )
         )
 
@@ -202,6 +212,36 @@ class AgentRuntime:
         return converted
 
 
+def _serialize_steps_compressed(history: list[BaseMessage]) -> list[dict[str, Any]]:
+    steps: list[dict[str, Any]] = []
+    tool_call_name_by_id: dict[str, str] = {}
+
+    for msg in history:
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            for call in msg.tool_calls:
+                call_id = call.get("id")
+                call_name = call.get("name")
+                if isinstance(call_id, str) and isinstance(call_name, str):
+                    tool_call_name_by_id[call_id] = call_name
+            steps.append({"type": "tool_calls", "tool_calls": msg.tool_calls})
+        elif isinstance(msg, ToolMessage):
+            # if msg.name in ("current_properties", ):
+            #     continue
+            content: Any = msg.content
+            tool_name = msg.name
+            if tool_name == "get_houses_nearby":
+                content = _compress_get_houses_nearby_result(msg.content)
+            elif tool_name == "get_houses_by_platform":
+                content = _compress_get_houses_by_platform_result(msg.content)
+            elif tool_name == "get_houses_by_community":
+                content = _compress_get_houses_by_community_result(msg.content)
+            steps.append({"type": "tool_result",
+                          "content": content,
+                          "tool_call_id": msg.tool_call_id,
+                          "status": msg.status})
+
+    return steps
+
 def _serialize_steps(history: list[BaseMessage]) -> list[dict[str, Any]]:
     steps: list[dict[str, Any]] = []
     tool_call_name_by_id: dict[str, str] = {}
@@ -215,13 +255,6 @@ def _serialize_steps(history: list[BaseMessage]) -> list[dict[str, Any]]:
             steps.append({"type": "tool_calls", "tool_calls": msg.tool_calls})
         elif isinstance(msg, ToolMessage):
             content: Any = msg.content
-            tool_name = tool_call_name_by_id.get(msg.tool_call_id)
-            if tool_name == "get_houses_nearby":
-                content = _compress_get_houses_nearby_result(msg.content)
-            elif tool_name == "get_houses_by_platform":
-                content = _compress_get_houses_by_platform_result(msg.content)
-            elif tool_name == "get_houses_by_community":
-                content = _compress_get_houses_by_community_result(msg.content)
             steps.append({"type": "tool_result",
                           "content": content,
                           "tool_call_id": msg.tool_call_id,
