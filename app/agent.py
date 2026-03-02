@@ -85,11 +85,13 @@ class AgentRuntime(BaseAgentRuntime):
         history: list[BaseMessage] = [self._system_message()]
         # self._logger.info("System Prompt: %s", self._system_message())
         history.extend(self._convert_messages(messages))
+        token_usage_history: list[BaseMessage] = []
 
         for step in range(max_steps):
             self._logger.info("Invoking LLM at step %s", step + 1)
             self._logger.info(f"History | {history}")
             raw_ai_message: AIMessage = llm.invoke(history)
+            token_usage_history.append(raw_ai_message)
             ai_message = trim_ai_message_for_history(raw_ai_message)
             history.append(ai_message)
             self._logger.info(
@@ -101,7 +103,7 @@ class AgentRuntime(BaseAgentRuntime):
 
             if not ai_message.tool_calls:
                 formatted_content = await self._format_final_content(ai_message.content, structured_llm)
-                token_usage = analyze_token_usage(history)
+                token_usage = analyze_token_usage(token_usage_history)
                 usage_insights = token_usage.pop("analysis", {})
                 self._logger.info(
                     "Token usage insights | llm_calls=%s | tool_call_steps=%s | final_response_steps=%s | avg_tokens_per_call=%s",

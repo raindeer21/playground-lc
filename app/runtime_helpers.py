@@ -12,11 +12,8 @@ def trim_ai_message_for_history(ai_message: AIMessage) -> AIMessage:
     trimmed_response_metadata: dict[str, Any] = {}
     if isinstance(response_metadata, dict):
         finish_reason = response_metadata.get("finish_reason")
-        token_usage = response_metadata.get("token_usage")
         if finish_reason is not None:
             trimmed_response_metadata["finish_reason"] = finish_reason
-        if isinstance(token_usage, dict):
-            trimmed_response_metadata["token_usage"] = token_usage
 
     kwargs: dict[str, Any] = {
         "content": ai_message.content,
@@ -24,10 +21,6 @@ def trim_ai_message_for_history(ai_message: AIMessage) -> AIMessage:
     }
     if trimmed_response_metadata:
         kwargs["response_metadata"] = trimmed_response_metadata
-
-    usage_metadata = getattr(ai_message, "usage_metadata", None)
-    if isinstance(usage_metadata, dict):
-        kwargs["usage_metadata"] = usage_metadata
 
     return AIMessage(**kwargs)
 
