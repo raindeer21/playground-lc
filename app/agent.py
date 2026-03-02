@@ -13,7 +13,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_openai import ChatOpenAI
 
 from app.runtime_base import BaseAgentRuntime
-from app.runtime_helpers import compress_tool_result
+from app.runtime_helpers import analyze_token_usage, compress_tool_result
 from app.skills import SkillStore
 from app.tools import AgentTools
 import asyncio
@@ -100,10 +100,20 @@ class AgentRuntime(BaseAgentRuntime):
 
             if not ai_message.tool_calls:
                 formatted_content = await self._format_final_content(ai_message.content, structured_llm)
+                token_usage = analyze_token_usage(history)
+                usage_insights = token_usage.pop("analysis", {})
+                self._logger.info(
+                    "Token usage insights | llm_calls=%s | tool_call_steps=%s | final_response_steps=%s | avg_tokens_per_call=%s",
+                    usage_insights.get("llm_calls", 0),
+                    usage_insights.get("tool_call_steps", 0),
+                    usage_insights.get("final_response_steps", 0),
+                    usage_insights.get("avg_tokens_per_call", 0),
+                )
                 response = {
                     "message": formatted_content,
                     "steps": self._serialize_steps(history),
-                    "compressed_steps": self._serialize_steps(history, compressed=True)
+                    "compressed_steps": self._serialize_steps(history, compressed=True),
+                    "token_usage": token_usage,
                 }
                 self._logger.info("Agent completed with direct LLM response at step %s", step + 1)
                 self._log_conversation(messages, response)

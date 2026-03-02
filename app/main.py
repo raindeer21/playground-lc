@@ -152,6 +152,13 @@ def _parse_property_response(content: str) -> dict[str, Any] | None:
     return {"message": message, "houses": houses}
 
 
+def _default_token_usage() -> dict[str, Any]:
+    return {
+        "totals": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "per_step": [],
+    }
+
+
 def _build_history_entries(result: dict[str, Any]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for step in result.get("compressed_steps", []):
@@ -199,6 +206,7 @@ async def chat_completions(request: ChatCompletionRequest):
             }
         ],
         "steps": result["steps"],
+        "token_usage": result.get("token_usage", _default_token_usage()),
     }
 
 
@@ -237,6 +245,7 @@ async def agent_chat(request: AgentChatRequest):
             "tool_results": [],
             "timestamp": timestamp,
             "duration_ms": duration_ms,
+            "token_usage": _default_token_usage(),
         }
         agent_chat_logger.info("response=%s", json.dumps(error_payload, ensure_ascii=False))
         return error_payload
@@ -254,6 +263,7 @@ async def agent_chat(request: AgentChatRequest):
         "tool_results": tool_results,
         "timestamp": timestamp,
         "duration_ms": duration_ms,
+        "token_usage": result.get("token_usage", _default_token_usage()),
     }
     property_result = _parse_property_response(result.get("message", ""))
     if property_result is not None:
