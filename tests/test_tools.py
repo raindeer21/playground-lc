@@ -271,3 +271,32 @@ def test_get_houses_list_by_community_calls_all_platforms_and_returns_house_plat
         {"houseid": "C103", "platform": "安居客"},
         {"houseid": "C104", "platform": "58同城"},
     ]
+
+
+def test_extract_house_ids_supports_nested_data_items() -> None:
+    from app.tools import _extract_house_ids
+
+    payload = {
+        "code": 0,
+        "message": "success",
+        "data": {
+            "total": 287,
+            "page": 1,
+            "page_size": 5,
+            "items": [{"house_id": "HF_3"}, {"house_id": "HF_33"}, {"house_id": "HF_36"}],
+        },
+    }
+
+    assert _extract_house_ids(payload) == ["HF_3", "HF_33", "HF_36"]
+
+
+def test_extract_house_ids_supports_nested_data_houses() -> None:
+    from app.tools import _extract_house_ids
+
+    payload = {
+        "data": {
+            "houses": [{"house_id": "X1"}, {"house_id": "X2"}],
+        },
+    }
+
+    assert _extract_house_ids(payload) == ["X1", "X2"]
