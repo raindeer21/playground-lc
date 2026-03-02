@@ -38,6 +38,23 @@ export OPENAI_API_KEY=...
 uvicorn app.main:app --reload
 ```
 
+
+## Runtime backend selection
+
+By default the API uses the existing LangChain runtime. You can switch to the Google ADK runtime via env var:
+
+```bash
+export AGENT_RUNTIME_BACKEND=google_adk
+export GOOGLE_API_KEY=your-key
+# optional (defaults to internal OpenAI-compatible endpoint used by current runtime)
+export GOOGLE_ADK_BASE_URL=http://your-adk-endpoint/v1
+uvicorn app.main:app --reload
+```
+
+Supported values:
+- `AGENT_RUNTIME_BACKEND=langchain` (default)
+- `AGENT_RUNTIME_BACKEND=google_adk`
+
 ## Example request
 
 ```bash
