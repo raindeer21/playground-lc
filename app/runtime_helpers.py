@@ -7,6 +7,24 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
 
+def trim_ai_message_for_history(ai_message: AIMessage) -> AIMessage:
+    response_metadata = getattr(ai_message, "response_metadata", None)
+    trimmed_response_metadata: dict[str, Any] = {}
+    if isinstance(response_metadata, dict):
+        finish_reason = response_metadata.get("finish_reason")
+        if finish_reason is not None:
+            trimmed_response_metadata["finish_reason"] = finish_reason
+
+    kwargs: dict[str, Any] = {
+        "content": ai_message.content,
+        "tool_calls": ai_message.tool_calls,
+    }
+    if trimmed_response_metadata:
+        kwargs["response_metadata"] = trimmed_response_metadata
+
+    return AIMessage(**kwargs)
+
+
 def _safe_int(value: Any) -> int:
     if isinstance(value, bool):
         return 0
