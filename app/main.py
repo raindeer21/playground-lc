@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import time
+import atexit
 from collections import defaultdict
 from pathlib import Path
 from threading import Lock
@@ -83,6 +84,13 @@ class AgentChatRequest(BaseModel):
 
 _session_histories: dict[str, list[dict[str, Any]]] = defaultdict(list)
 _session_lock = Lock()
+_token_stats_lock = Lock()
+_cumulative_token_stats: dict[str, int] = {
+    "requests": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+}
 
 
 def _trim_old_tool_history(
@@ -187,6 +195,36 @@ def _log_agent_chat_token_usage(session_id: str, token_usage: dict[str, Any]) ->
         avg_tokens_per_call,
     )
 
+
+def _update_cumulative_token_stats(token_usage: dict[str, Any]) -> None:
+    totals = token_usage.get("totals", {}) if isinstance(token_usage, dict) else {}
+    prompt_tokens = totals.get("prompt_tokens", 0) if isinstance(totals, dict) else 0
+    completion_tokens = totals.get("completion_tokens", 0) if isinstance(totals, dict) else 0
+    total_tokens = totals.get("total_tokens", 0) if isinstance(totals, dict) else 0
+
+    with _token_stats_lock:
+        _cumulative_token_stats["requests"] += 1
+        _cumulative_token_stats["prompt_tokens"] += int(prompt_tokens or 0)
+        _cumulative_token_stats["completion_tokens"] += int(completion_tokens or 0)
+        _cumulative_token_stats["total_tokens"] += int(total_tokens or 0)
+
+
+def _print_cumulative_token_stats_on_exit() -> None:
+    with _token_stats_lock:
+        snapshot = dict(_cumulative_token_stats)
+
+    print(
+        "cumulative_token_usage"
+        f" | requests={snapshot['requests']}"
+        f" | prompt_tokens={snapshot['prompt_tokens']}"
+        f" | completion_tokens={snapshot['completion_tokens']}"
+        f" | total_tokens={snapshot['total_tokens']}",
+        flush=True,
+    )
+
+
+atexit.register(_print_cumulative_token_stats_on_exit)
+
 def _build_history_entries(result: dict[str, Any]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for step in result.get("compressed_steps", []):
@@ -275,6 +313,7 @@ async def agent_chat(request: AgentChatRequest):
             "duration_ms": duration_ms,
             "token_usage": _default_token_usage(),
         }
+        _update_cumulative_token_stats(error_payload["token_usage"])
         _log_agent_chat_token_usage(request.session_id, error_payload["token_usage"])
         agent_chat_logger.info("response=%s", json.dumps(error_payload, ensure_ascii=False))
         return error_payload
@@ -303,6 +342,7 @@ async def agent_chat(request: AgentChatRequest):
         else:
             response_payload["response"] = property_result["message"]
 
+    _update_cumulative_token_stats(response_payload["token_usage"])
     _log_agent_chat_token_usage(request.session_id, response_payload["token_usage"])
     logger.info(f"Final Response | {response_payload}")
     agent_chat_logger.info("response=%s", json.dumps(response_payload, ensure_ascii=False))
