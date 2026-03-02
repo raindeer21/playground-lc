@@ -181,15 +181,22 @@ def _extract_house_ids(payload: object) -> list[str]:
     if not isinstance(payload, (dict, list)):
         return []
 
-    items: list[dict[str, object]] = []
-    if isinstance(payload, list):
-        items = [item for item in payload if isinstance(item, dict)]
-    else:
-        for key in ("houses", "items", "results", "data"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                items = [item for item in value if isinstance(item, dict)]
-                break
+    def _extract_items(node: object) -> list[dict[str, object]]:
+        if isinstance(node, list):
+            return [item for item in node if isinstance(item, dict)]
+        if isinstance(node, dict):
+            for key in ("houses", "items", "results"):
+                value = node.get(key)
+                if isinstance(value, list):
+                    return [item for item in value if isinstance(item, dict)]
+
+            data_value = node.get("data")
+            if isinstance(data_value, (dict, list)):
+                return _extract_items(data_value)
+
+        return []
+
+    items = _extract_items(payload)
 
     house_ids: list[str] = []
     for item in items:
