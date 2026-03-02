@@ -24,6 +24,11 @@ class PropertyAnswer(BaseModel):
     message: str = Field(description="User-facing response summary")
     houses: list[str] = Field(default_factory=list, description="Relevant house ids")
 
+
+class SelectedSkills(BaseModel):
+    selected_skills: list[str] = Field(default_factory=list, description="Selected skill IDs")
+    raw_response: str = Field(default="", description="Raw model response fallback text")
+
 class AgentRuntime(BaseAgentRuntime):
     def __init__(
         self,
@@ -226,7 +231,7 @@ class AgentRuntime(BaseAgentRuntime):
             base_url=self.default_base_url,
             api_key="sk-1234",
             temperature=0,
-        )
+        ).with_structured_output(SelectedSkills)
 
         prompt = (
             "你是skill选择器。请根据用户请求只返回JSON数组，内容是最相关skill_id；无匹配返回[]。"
@@ -248,8 +253,8 @@ class AgentRuntime(BaseAgentRuntime):
         )
 
         try:
-            response = selector_llm.invoke([HumanMessage(content=prompt)])
-            selected_skills = self._parse_selected_skill_ids(str(response.content), headers)
+            response: SelectedSkills = selector_llm.invoke([HumanMessage(content=prompt)])
+            selected_skills = self._parse_selected_skill_ids(response.model_dump_json(), headers)
             self._logger.info(
                 "skill_select token_usage | %s",
                 json.dumps(extract_token_usage(response), ensure_ascii=False),
@@ -259,7 +264,7 @@ class AgentRuntime(BaseAgentRuntime):
                 json.dumps(
                     {
                         "selected_skills": selected_skills,
-                        "raw_response": str(response.content),
+                        "raw_response": response.raw_response,
                     },
                     ensure_ascii=False,
                 ),
@@ -284,23 +289,49 @@ class AgentRuntime(BaseAgentRuntime):
         try:
             parsed = json.loads(text)
         except Exception:
-            match = re.search(r"\[[\s\S]*\]", text)
-            if not match:
+            matches = list(re.finditer(r"\[[\s\S]*?\]", text))
+            if not matches:
                 return []
-            try:
-                parsed = json.loads(match.group(0))
-            except Exception:
+            parsed = None
+            for match in reversed(matches):
+                try:
+                    parsed = json.loads(match.group(0))
+                    break
+                except Exception:
+                    continue
+            if parsed is None:
                 return []
+
+        if isinstance(parsed, dict):
+            selected = AgentRuntime._coerce_selected_skill_ids(parsed.get("selected_skills"), valid_ids)
+            if selected:
+                return selected
+            raw_response = parsed.get("raw_response")
+            if isinstance(raw_response, str):
+                return AgentRuntime._parse_selected_skill_ids(raw_response, headers)
+            return []
 
         if not isinstance(parsed, list):
             return []
 
+        return AgentRuntime._coerce_selected_skill_ids(parsed, valid_ids)
+
+    @staticmethod
+    def _coerce_selected_skill_ids(payload: Any, valid_ids: set[str | None]) -> list[str]:
+        if not isinstance(payload, list):
+            return []
+
         selected: list[str] = []
-        for item in parsed:
-            if not isinstance(item, str):
-                continue
-            if item in valid_ids and item not in selected:
-                selected.append(item)
+        for item in payload:
+            skill_id: str | None = None
+            if isinstance(item, str):
+                skill_id = item
+            elif isinstance(item, dict):
+                candidate = item.get("skill_id")
+                if isinstance(candidate, str):
+                    skill_id = candidate
+            if skill_id in valid_ids and skill_id not in selected:
+                selected.append(skill_id)
         return selected
 
     async def _format_final_content(self, content: Any, structured_llm: Any | None = None) -> str:
