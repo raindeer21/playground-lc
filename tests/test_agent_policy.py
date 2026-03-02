@@ -261,6 +261,37 @@ def test_parse_selected_skill_ids_filters_unknown_and_duplicates() -> None:
     assert parsed == ["property_search", "property_management"]
 
 
+
+
+def test_parse_selected_skill_ids_supports_object_payload() -> None:
+    headers = [
+        {"skill_id": "property_search", "name": "search", "description": ""},
+        {"skill_id": "property_management", "name": "actions", "description": ""},
+    ]
+
+    parsed = AgentRuntime._parse_selected_skill_ids(
+        '{"selected_skills":[{"skill_id":"property_search"},"property_management"]}',
+        headers,
+    )
+
+    assert parsed == ["property_search", "property_management"]
+
+
+def test_parse_selected_skill_ids_supports_raw_response_wrapper() -> None:
+    headers = [
+        {"skill_id": "property_search", "name": "search", "description": ""},
+        {"skill_id": "property_management", "name": "actions", "description": ""},
+    ]
+
+    payload = json.dumps(
+        {"selected_skills": [], "raw_response": '[{"skill_id": "property_search"}]'},
+        ensure_ascii=False,
+    )
+    parsed = AgentRuntime._parse_selected_skill_ids(payload, headers)
+
+    assert parsed == ["property_search"]
+
+
 def test_system_prompt_contains_skill_select_block() -> None:
     runtime = AgentRuntime.__new__(AgentRuntime)
 

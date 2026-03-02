@@ -281,6 +281,39 @@ class AgentRuntime(BaseAgentRuntime):
         valid_ids = {item.get("skill_id") for item in headers}
         text = content.strip()
 
+        def _extract_skill_id(item: Any) -> str | None:
+            if isinstance(item, str):
+                return item
+            if isinstance(item, dict):
+                skill_id = item.get("skill_id")
+                if isinstance(skill_id, str):
+                    return skill_id
+            return None
+
+        def _normalize_selected(parsed: Any) -> list[str]:
+            if isinstance(parsed, dict):
+                selected_skills = parsed.get("selected_skills")
+                if isinstance(selected_skills, list):
+                    normalized = _normalize_selected(selected_skills)
+                    if normalized:
+                        return normalized
+                raw_response = parsed.get("raw_response")
+                if isinstance(raw_response, str):
+                    return AgentRuntime._parse_selected_skill_ids(raw_response, headers)
+                return []
+
+            if not isinstance(parsed, list):
+                return []
+
+            selected: list[str] = []
+            for item in parsed:
+                skill_id = _extract_skill_id(item)
+                if not skill_id:
+                    continue
+                if skill_id in valid_ids and skill_id not in selected:
+                    selected.append(skill_id)
+            return selected
+
         try:
             parsed = json.loads(text)
         except Exception:
@@ -292,16 +325,7 @@ class AgentRuntime(BaseAgentRuntime):
             except Exception:
                 return []
 
-        if not isinstance(parsed, list):
-            return []
-
-        selected: list[str] = []
-        for item in parsed:
-            if not isinstance(item, str):
-                continue
-            if item in valid_ids and item not in selected:
-                selected.append(item)
-        return selected
+        return _normalize_selected(parsed)
 
     async def _format_final_content(self, content: Any, structured_llm: Any | None = None) -> str:
         text = str(content).strip()
