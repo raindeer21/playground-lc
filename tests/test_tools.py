@@ -164,11 +164,10 @@ def test_house_search_calls_all_platforms_and_returns_house_platform_pairs(monke
     assert all(r["path"] == "/api/houses/by_platform" for r in captured_requests)
     assert all(r["params"]["page_size"] == 5 for r in captured_requests)
     assert payload["houses"] == [
-        {"houseid": "A1", "platform": "链家"},
-        {"houseid": "A2", "platform": "链家"},
-        {"houseid": "A2", "platform": "安居客"},
-        {"houseid": "B1", "platform": "安居客"},
-        {"houseid": "C1", "platform": "58同城"},
+        {"houseid": "A1", "platforms": ["链家"]},
+        {"houseid": "A2", "platforms": ["链家", "安居客"]},
+        {"houseid": "B1", "platforms": ["安居客"]},
+        {"houseid": "C1", "platforms": ["58同城"]},
     ]
 
 
@@ -215,10 +214,10 @@ def test_get_houses_list_nearby_calls_all_platforms_and_returns_house_platform_p
     assert all(r["path"] == "/api/houses/nearby" for r in captured_requests)
     assert all(r["params"]["page_size"] == 5 for r in captured_requests)
     assert payload["houses"] == [
-        {"houseid": "N1", "platform": "链家"},
-        {"houseid": "N2", "platform": "链家"},
-        {"houseid": "N3", "platform": "安居客"},
-        {"houseid": "N4", "platform": "58同城"},
+        {"houseid": "N1", "platforms": ["链家"]},
+        {"houseid": "N2", "platforms": ["链家"]},
+        {"houseid": "N3", "platforms": ["安居客"]},
+        {"houseid": "N4", "platforms": ["58同城"]},
     ]
 
 
@@ -266,10 +265,10 @@ def test_get_houses_list_by_community_calls_all_platforms_and_returns_house_plat
     assert all(r["path"] == "/api/houses/by_community" for r in captured_requests)
     assert all(r["params"]["page_size"] == 5 for r in captured_requests)
     assert payload["houses"] == [
-        {"houseid": "C101", "platform": "链家"},
-        {"houseid": "C102", "platform": "安居客"},
-        {"houseid": "C103", "platform": "安居客"},
-        {"houseid": "C104", "platform": "58同城"},
+        {"houseid": "C101", "platforms": ["链家"]},
+        {"houseid": "C102", "platforms": ["安居客"]},
+        {"houseid": "C103", "platforms": ["安居客"]},
+        {"houseid": "C104", "platforms": ["58同城"]},
     ]
 
 
