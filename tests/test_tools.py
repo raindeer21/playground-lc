@@ -300,3 +300,128 @@ def test_extract_house_ids_supports_nested_data_houses() -> None:
     }
 
     assert _extract_house_ids(payload) == ["X1", "X2"]
+
+
+def test_get_houses_by_platform_simple_detailed_returns_untrimmed_http_payloads(monkeypatch) -> None:
+    from app.tools import get_houses_by_platform_simple
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class _DummyClient:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, path, params):
+            platform = params["listing_platform"]
+            payload_by_platform = {
+                "链家": {"houses": [{"house_id": "A1", "title": "链家房源"}]},
+                "安居客": {"data": {"items": [{"house_id": "B1", "title": "安居客房源"}]}},
+                "58同城": {"results": [{"house_id": "C1", "title": "58房源"}]},
+            }
+            return _Response(payload_by_platform[platform])
+
+    monkeypatch.setattr("app.tools.httpx.Client", _DummyClient)
+
+    payload = json.loads(get_houses_by_platform_simple(district="海淀", page_size=5, detailed=True))
+
+    assert "houses" not in payload
+    assert payload["raw_results"] == [
+        {"platform": "链家", "result": {"houses": [{"house_id": "A1", "title": "链家房源"}]}},
+        {"platform": "安居客", "result": {"data": {"items": [{"house_id": "B1", "title": "安居客房源"}]}}},
+        {"platform": "58同城", "result": {"results": [{"house_id": "C1", "title": "58房源"}]}},
+    ]
+
+
+def test_get_houses_nearby_simple_detailed_returns_untrimmed_http_payloads(monkeypatch) -> None:
+    from app.tools import get_houses_nearby_simple
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class _DummyClient:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, path, params):
+            platform = params["listing_platform"]
+            payload_by_platform = {
+                "链家": {"houses": [{"house_id": "N1", "walk_time": 8}]},
+                "安居客": {"houses": [{"house_id": "N2", "walk_time": 10}]},
+                "58同城": {"houses": [{"house_id": "N3", "walk_time": 12}]},
+            }
+            return _Response(payload_by_platform[platform])
+
+    monkeypatch.setattr("app.tools.httpx.Client", _DummyClient)
+
+    payload = json.loads(get_houses_nearby_simple(landmark_id="LM_1", page_size=5, detailed=True))
+
+    assert "houses" not in payload
+    assert payload["raw_results"][0]["result"]["houses"][0]["walk_time"] == 8
+    assert [item["platform"] for item in payload["raw_results"]] == ["链家", "安居客", "58同城"]
+
+
+def test_get_houses_list_by_community_detailed_returns_untrimmed_http_payloads(monkeypatch) -> None:
+    from app.tools import get_houses_list_by_community
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class _DummyClient:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, path, params):
+            platform = params["listing_platform"]
+            payload_by_platform = {
+                "链家": {"houses": [{"house_id": "C101", "floor": "5/20"}]},
+                "安居客": {"houses": [{"house_id": "C102", "floor": "8/18"}]},
+                "58同城": {"houses": [{"house_id": "C103", "floor": "11/22"}]},
+            }
+            return _Response(payload_by_platform[platform])
+
+    monkeypatch.setattr("app.tools.httpx.Client", _DummyClient)
+
+    payload = json.loads(get_houses_list_by_community(community="建清园(南区)", page_size=5, detailed=True))
+
+    assert "houses" not in payload
+    assert payload["raw_results"][2] == {"platform": "58同城", "result": {"houses": [{"house_id": "C103", "floor": "11/22"}]}}
