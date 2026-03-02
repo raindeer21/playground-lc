@@ -449,8 +449,10 @@ class AgentTools:
         except Exception:  # noqa: BLE001
             logger.exception("Failed to load OpenAPI tools from %s", _openapi_spec_path)
 
-    async def _mcp_tools_async(self) -> list[dict[str, object]]:
+    async def _mcp_tools_async(self, allowed_tools: set[str] | None = None) -> list[dict[str, object]]:
         tools = await mcp.list_tools()
+        allowed = {name.lower() for name in allowed_tools} if allowed_tools else None
+
         return [
             {
                 "type": "function",
@@ -461,10 +463,11 @@ class AgentTools:
                 },
             }
             for tool in tools
+            if allowed is None or tool.name.lower() in allowed
         ]
 
-    async def langchain_tools(self) -> list[dict[str, object]]:
-        return await self._mcp_tools_async()
+    async def langchain_tools(self, allowed_tools: set[str] | None = None) -> list[dict[str, object]]:
+        return await self._mcp_tools_async(allowed_tools=allowed_tools)
 
     async def _dispatch_tool_async(self, name: str, args: dict) -> str:
         async with Client(mcp) as client:

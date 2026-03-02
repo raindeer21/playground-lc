@@ -41,7 +41,13 @@ class AgentRuntime(BaseAgentRuntime):
         self.llm = asyncio.run(self._build_llm(model=model))
         self.structured_llm = asyncio.run(self._build_structured_llm(model=model))
 
-    async def _build_llm(self, model: str, session_id: str | None = None, base_url: str | None = None):
+    async def _build_llm(
+        self,
+        model: str,
+        session_id: str | None = None,
+        base_url: str | None = None,
+        allowed_tools: set[str] | None = None,
+    ):
         client_headers = {"Session-ID": session_id} if session_id else None
         return ChatOpenAI(
             model=model,
@@ -51,7 +57,7 @@ class AgentRuntime(BaseAgentRuntime):
             # base_url="http://151.210.17.190:11345/v1",
             # api_key="",
             temperature=0,
-        ).bind_tools(await self.tools.langchain_tools())
+        ).bind_tools(await self.tools.langchain_tools(allowed_tools=allowed_tools))
 
 
     async def _build_structured_llm(self, model: str, session_id: str | None = None, base_url: str | None = None):
@@ -74,15 +80,25 @@ class AgentRuntime(BaseAgentRuntime):
     ) -> dict[str, Any]:
         self._logger.info("Agent chat started | max_steps=%s | message_count=%s", max_steps, len(messages))
         self._logger.info("Incoming messages payload: %s", json.dumps(messages, ensure_ascii=False))
-        if model is None and session_id is None and base_url is None:
+        selected_skills = await self._select_skills_for_request(messages)
+        self._logger.info("skill_select result | selected_skills=%s", selected_skills)
+
+        target_model = model or self.default_model
+        allowed_tools = self.skill_store.tool_whitelist_for(selected_skills)
+
+        if model is None and session_id is None and base_url is None and not selected_skills:
             llm = self.llm
             structured_llm = getattr(self, "structured_llm", None)
         else:
-            target_model = model or self.default_model
-            llm = await self._build_llm(model=target_model, session_id=session_id, base_url=base_url)
+            llm = await self._build_llm(
+                model=target_model,
+                session_id=session_id,
+                base_url=base_url,
+                allowed_tools=allowed_tools,
+            )
             structured_llm = await self._build_structured_llm(model=target_model, session_id=session_id, base_url=base_url)
 
-        history: list[BaseMessage] = [self._system_message()]
+        history: list[BaseMessage] = [self._system_message(selected_skills=selected_skills)]
         # self._logger.info("System Prompt: %s", self._system_message())
         history.extend(self._convert_messages(messages))
         token_usage_history: list[BaseMessage] = []
@@ -147,10 +163,13 @@ class AgentRuntime(BaseAgentRuntime):
         self._log_conversation(messages, error_response)
         return error_response
 
-    def _system_message(self) -> SystemMessage:
+    def _system_message(self, selected_skills: list[str] | None = None) -> SystemMessage:
         headers = self.skill_store.headers()
+        selected = selected_skills or []
         return SystemMessage(
             content=(
+                f"可用技能头（SKILL_HEADERS）: {json.dumps(headers, ensure_ascii=False)}\n"
+                f"本轮已选技能（SKILL_SELECT）: {json.dumps(selected, ensure_ascii=False)}\n\n"
                 "角色（ROLE）\n"
                 "- 你是租房方向的专业房产中介，专注于：找房 / 对比 / 租房 / 退租 / 下架。\n"
                 "- 你是专业的工作人员，需要简要且直接地回答问题，不要长篇大论，直接说结论（如：没有房源，有以下房源），不要给出额外建议。\n"
@@ -189,6 +208,71 @@ class AgentRuntime(BaseAgentRuntime):
                 "- 最终推荐房源不超过 5 个。\n"
             )
         )
+
+    async def _select_skills_for_request(self, messages: list[dict[str, Any]]) -> list[str]:
+        headers = self.skill_store.headers()
+        if not headers:
+            return []
+
+        user_text = self._latest_user_text(messages)
+        if not user_text:
+            return []
+
+        selector_llm = ChatOpenAI(
+            model=self.default_model,
+            http_client=httpx.Client(trust_env=False),
+            base_url=self.default_base_url,
+            api_key="sk-1234",
+            temperature=0,
+        )
+
+        prompt = (
+            "你是skill选择器。请根据用户请求只返回JSON数组，内容是最相关skill_id；无匹配返回[]。"
+            "优先少选，最多3个。\n"
+            f"skills={json.dumps(headers, ensure_ascii=False)}\n"
+            f"request={user_text}"
+        )
+
+        try:
+            response = selector_llm.invoke([HumanMessage(content=prompt)])
+            return self._parse_selected_skill_ids(str(response.content), headers)
+        except Exception:
+            self._logger.exception("skill_select failed")
+            return []
+
+    @staticmethod
+    def _latest_user_text(messages: list[dict[str, Any]]) -> str:
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                return str(message.get("content", ""))
+        return ""
+
+    @staticmethod
+    def _parse_selected_skill_ids(content: str, headers: list[dict[str, str]]) -> list[str]:
+        valid_ids = {item.get("skill_id") for item in headers}
+        text = content.strip()
+
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            match = re.search(r"\[[\s\S]*\]", text)
+            if not match:
+                return []
+            try:
+                parsed = json.loads(match.group(0))
+            except Exception:
+                return []
+
+        if not isinstance(parsed, list):
+            return []
+
+        selected: list[str] = []
+        for item in parsed:
+            if not isinstance(item, str):
+                continue
+            if item in valid_ids and item not in selected:
+                selected.append(item)
+        return selected
 
     async def _format_final_content(self, content: Any, structured_llm: Any | None = None) -> str:
         text = str(content).strip()
