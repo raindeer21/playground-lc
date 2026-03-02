@@ -290,3 +290,44 @@ def test_agent_chat_returns_message_only_when_houses_empty(monkeypatch) -> None:
     assert payload["status"] == "success"
     assert payload["response"] == "暂无符合条件的房源"
     assert "houses" not in payload
+
+
+def test_update_cumulative_token_stats_accumulates_values() -> None:
+    from app import main
+
+    with main._token_stats_lock:
+        main._cumulative_token_stats.update(
+            {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        )
+
+    main._update_cumulative_token_stats(
+        {"totals": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}
+    )
+    main._update_cumulative_token_stats(
+        {"totals": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}}
+    )
+
+    with main._token_stats_lock:
+        assert main._cumulative_token_stats == {
+            "requests": 2,
+            "prompt_tokens": 11,
+            "completion_tokens": 7,
+            "total_tokens": 18,
+        }
+
+
+def test_print_cumulative_token_stats_on_exit_outputs_snapshot(capsys) -> None:
+    from app import main
+
+    with main._token_stats_lock:
+        main._cumulative_token_stats.update(
+            {"requests": 3, "prompt_tokens": 20, "completion_tokens": 8, "total_tokens": 28}
+        )
+
+    main._print_cumulative_token_stats_on_exit()
+
+    captured = capsys.readouterr()
+    assert (
+        "cumulative_token_usage | requests=3 | prompt_tokens=20 | completion_tokens=8 | total_tokens=28"
+        in captured.out
+    )
