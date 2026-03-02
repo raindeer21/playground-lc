@@ -13,7 +13,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_openai import ChatOpenAI
 
 from app.runtime_base import BaseAgentRuntime
-from app.runtime_helpers import analyze_token_usage, compress_tool_result
+from app.runtime_helpers import analyze_token_usage, compress_tool_result, trim_ai_message_for_history
 from app.skills import SkillStore
 from app.tools import AgentTools
 import asyncio
@@ -89,7 +89,8 @@ class AgentRuntime(BaseAgentRuntime):
         for step in range(max_steps):
             self._logger.info("Invoking LLM at step %s", step + 1)
             self._logger.info(f"History | {history}")
-            ai_message: AIMessage = llm.invoke(history)
+            raw_ai_message: AIMessage = llm.invoke(history)
+            ai_message = trim_ai_message_for_history(raw_ai_message)
             history.append(ai_message)
             self._logger.info(
                 "LLM response at step %s | content=%s | tool_calls=%s",
