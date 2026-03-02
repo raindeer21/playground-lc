@@ -5,6 +5,7 @@ import json
 import logging
 from pathlib import Path
 from copy import deepcopy
+from typing import Annotated
 
 import httpx
 from fastmcp import Client, FastMCP
@@ -206,28 +207,28 @@ def _extract_house_ids(payload: object) -> list[str]:
 #                 "根据筛选条件分别获取三大平台（链家/安居客/58同城）的房源，并返回 {houseid, platform} 列表。",
 # )
 def get_houses_by_platform_simple(
-    district: str | None = None,
-    area: str | None = None,
-    min_price: int | None = None,
-    max_price: int | None = None,
-    bedrooms: str | None = None,
-    rental_type: str | None = None,
-    decoration: str | None = None,
-    orientation: str | None = None,
-    elevator: str | None = None,
-    min_area: int | None = None,
-    max_area: int | None = None,
-    property_type: str | None = None,
-    subway_line: str | None = None,
-    max_subway_dist: int | None = None,
-    subway_station: str | None = None,
-    utilities_type: str | None = None,
-    available_from_before: str | None = None,
-    commute_to_xierqi_max: int | None = None,
-    sort_by: str | None = None,
-    sort_order: str | None = None,
-    page: int | None = 1,
-    page_size: int = 5,
+    district: Annotated[str | None, Field(description="行政区")] = None,
+    area: Annotated[str | None, Field(description="商圈，逗号分隔")] = None,
+    min_price: Annotated[int | None, Field(description="最低月租金（元）")] = None,
+    max_price: Annotated[int | None, Field(description="最高月租金（元）")] = None,
+    bedrooms: Annotated[str | None, Field(description="卧室数，逗号分隔")] = None,
+    rental_type: Annotated[str | None, Field(description="整租 或 合租")] = None,
+    decoration: Annotated[str | None, Field(description="装修，如精装/简装")] = None,
+    orientation: Annotated[str | None, Field(description="朝向")] = None,
+    elevator: Annotated[str | None, Field(description="是否有电梯：true/false")] = None,
+    min_area: Annotated[int | None, Field(description="最小面积（平米）")] = None,
+    max_area: Annotated[int | None, Field(description="最大面积（平米）")] = None,
+    property_type: Annotated[str | None, Field(description="物业类型")] = None,
+    subway_line: Annotated[str | None, Field(description="地铁线路")] = None,
+    max_subway_dist: Annotated[int | None, Field(description="最大地铁距离（米）")] = None,
+    subway_station: Annotated[str | None, Field(description="地铁站名")] = None,
+    utilities_type: Annotated[str | None, Field(description="水电类型")] = None,
+    available_from_before: Annotated[str | None, Field(description="可入住日期上限，YYYY-MM-DD")] = None,
+    commute_to_xierqi_max: Annotated[int | None, Field(description="到西二旗通勤时间上限（分钟）")] = None,
+    sort_by: Annotated[str | None, Field(description="排序字段：price/area/subway")] = None,
+    sort_order: Annotated[str | None, Field(description="排序顺序：asc/desc")] = None,
+    page: Annotated[int | None, Field(description="页码")] = 1,
+    page_size: Annotated[int, Field(description="每页数量")] = 5,
 ) -> str:
     params = HouseSearchInput(
         district=district,
@@ -294,10 +295,10 @@ def get_houses_by_platform_simple(
 #                 "必须先使用search_landmarks获取精准地标名称/ID后，才能调用该接口。以地标为圆心，查询在指定距离内的可租房源，返回带直线距离、步行距离、步行时间。",
 # )
 def get_houses_nearby_simple(
-    landmark_id: str,
-    max_distance: int | None = None,
-    page: int | None = 1,
-    page_size: int = 5,
+    landmark_id: Annotated[str, Field(description="地标ID")],
+    max_distance: Annotated[int | None, Field(description="最大距离（米）")] = None,
+    page: Annotated[int | None, Field(description="页码")] = 1,
+    page_size: Annotated[int, Field(description="每页数量")] = 5,
 ) -> str:
     params = HouseNearbySearchInput(
         landmark_id=landmark_id,
@@ -343,9 +344,9 @@ def get_houses_nearby_simple(
 #     description="根据小区名分别调用三大平台（链家/安居客/58同城）的 get_houses_by_community 接口，并返回 {houseid, platform} 列表。",
 # )
 def get_houses_list_by_community(
-    community: str,
-    page: int | None = 1,
-    page_size: int = 5,
+    community: Annotated[str, Field(description="小区名")],
+    page: Annotated[int | None, Field(description="页码")] = 1,
+    page_size: Annotated[int, Field(description="每页数量")] = 5,
 ) -> str:
     params = HouseCommunitySearchInput(
         community=community,
