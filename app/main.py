@@ -85,6 +85,37 @@ _session_histories: dict[str, list[dict[str, Any]]] = defaultdict(list)
 _session_lock = Lock()
 
 
+def _trim_old_tool_history(
+    history: list[dict[str, Any]],
+    max_recent_user_requests: int = 2,
+) -> list[dict[str, Any]]:
+    if max_recent_user_requests <= 0:
+        return [
+            item
+            for item in history
+            if item.get("role") not in {"tool"}
+            and not (item.get("role") == "assistant" and item.get("tool_calls"))
+        ]
+
+    total_user_requests = sum(1 for item in history if item.get("role") == "user")
+    keep_from_user_index = max(1, total_user_requests - max_recent_user_requests + 1)
+
+    trimmed: list[dict[str, Any]] = []
+    current_user_index = 0
+    for item in history:
+        role = item.get("role")
+        if role == "user":
+            current_user_index += 1
+            trimmed.append(item)
+            continue
+
+        is_tool_entry = role == "tool" or (role == "assistant" and item.get("tool_calls"))
+        if is_tool_entry and current_user_index < keep_from_user_index:
+            continue
+        trimmed.append(item)
+    return trimmed
+
+
 def _extract_tool_results(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     tool_results: list[dict[str, Any]] = []
     pending_names: list[str] = []
@@ -190,6 +221,7 @@ async def agent_chat(request: AgentChatRequest):
     with _session_lock:
         history = list(_session_histories[request.session_id])
     history.append({"role": "user", "content": request.message})
+    history = _trim_old_tool_history(history)
 
     if request.model_ip:
         base_url = f"http://{request.model_ip}:8888/v1"
@@ -213,7 +245,9 @@ async def agent_chat(request: AgentChatRequest):
         return error_payload
 
     with _session_lock:
-        _session_histories[request.session_id] = [*history, *_build_history_entries(result)]
+        _session_histories[request.session_id] = _trim_old_tool_history(
+            [*history, *_build_history_entries(result)]
+        )
 
     tool_results = _extract_tool_results(result.get("steps", []))
     response_payload = {

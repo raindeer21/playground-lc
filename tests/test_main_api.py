@@ -44,6 +44,25 @@ class _PropertyResultRuntime:
             ],
         }
 
+
+class _HistoryCapturingRuntime:
+    def __init__(self):
+        self.messages_by_call = []
+
+    async def chat(self, messages, **_kwargs):
+        self.messages_by_call.append(messages)
+        return {
+            "message": "ok",
+            "steps": [
+                {"type": "tool_calls", "tool_calls": [{"name": "bash", "args": {}}]},
+                {"type": "tool_result", "content": "ok"},
+            ],
+            "compressed_steps": [
+                {"type": "tool_calls", "tool_calls": [{"id": "tool-call-1", "name": "bash", "args": {}}]},
+                {"type": "tool_result", "tool_call_id": "tool-call-1", "content": "ok"},
+            ],
+        }
+
 class _ErrorRuntime:
     def chat(self, _messages, **_kwargs):
         return {"error": "Agent hit max_steps without calling respond_to_user."}
@@ -238,3 +257,26 @@ def test_agent_chat_returns_property_result_when_tool_called(monkeypatch) -> Non
     assert payload["status"] == "success"
     assert payload["message"] == "为您找到以下符合条件的房源："
     assert payload["houses"] == ["HF_4", "HF_6", "HF_277"]
+
+
+def test_agent_chat_only_keeps_tool_history_for_most_recent_two_user_requests(monkeypatch) -> None:
+    from app import main
+
+    runtime = _HistoryCapturingRuntime()
+    monkeypatch.setattr(main, "runtime", runtime)
+    main._session_histories.clear()
+    client = TestClient(main.app)
+
+    session_id = "trim-tool-history"
+    for idx in range(3):
+        response = client.post(
+            "/api/v1/chat",
+            json={"model_ip": "http://127.0.0.1:11434/v1", "session_id": session_id, "message": f"第{idx + 1}次"},
+        )
+        assert response.status_code == 200
+
+    third_call_messages = runtime.messages_by_call[2]
+    assert sum(1 for msg in third_call_messages if msg.get("role") == "user") == 3
+    tool_messages = [msg for msg in third_call_messages if msg.get("role") == "tool"]
+    assert len(tool_messages) == 1
+    assert tool_messages[0]["content"] == "ok"
