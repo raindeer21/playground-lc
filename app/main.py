@@ -5,10 +5,12 @@ import logging
 import os
 import sys
 import time
+from datetime import datetime, UTC
 from collections import defaultdict
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from uuid import uuid4
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
@@ -159,9 +161,14 @@ def _default_token_usage() -> dict[str, Any]:
     }
 
 
+def _build_request_id(prefix: str) -> str:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
+    return f"{prefix}-{timestamp}-{uuid4().hex[:12]}"
 
 
-def _log_agent_chat_token_usage(session_id: str, token_usage: dict[str, Any]) -> None:
+
+
+def _log_agent_chat_token_usage(request_id: str, session_id: str, token_usage: dict[str, Any]) -> None:
     totals = token_usage.get("totals", {}) if isinstance(token_usage, dict) else {}
     per_step = token_usage.get("per_step", []) if isinstance(token_usage, dict) else []
 
@@ -176,7 +183,8 @@ def _log_agent_chat_token_usage(session_id: str, token_usage: dict[str, Any]) ->
     avg_tokens_per_call = int(total_tokens / llm_calls) if llm_calls else 0
 
     agent_chat_logger.info(
-        "token_usage_insights | session_id=%s | prompt_tokens=%s | completion_tokens=%s | total_tokens=%s | llm_calls=%s | tool_call_steps=%s | final_response_steps=%s | avg_tokens_per_call=%s",
+        "token_usage_insights | request_id=%s | session_id=%s | prompt_tokens=%s | completion_tokens=%s | total_tokens=%s | llm_calls=%s | tool_call_steps=%s | final_response_steps=%s | avg_tokens_per_call=%s",
+        request_id,
         session_id,
         totals.get("prompt_tokens", 0) if isinstance(totals, dict) else 0,
         totals.get("completion_tokens", 0) if isinstance(totals, dict) else 0,
@@ -213,7 +221,12 @@ def _build_history_entries(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest):
-    logger.info("Incoming /v1/chat/completions request with %s message(s)", len(request.messages))
+    request_id = _build_request_id("chatcmpl")
+    logger.info(
+        "Incoming /v1/chat/completions request | request_id=%s | message_count=%s",
+        request_id,
+        len(request.messages),
+    )
     result = await runtime.chat([m.model_dump() for m in request.messages], model=request.model)
 
     if "error" in result:
@@ -241,13 +254,16 @@ async def chat_completions(request: ChatCompletionRequest):
 @app.post("/api/v1/chat")
 async def agent_chat(request: AgentChatRequest):
     start = time.perf_counter()
+    request_id = _build_request_id("agentchat")
     logger.info(
-        "Incoming /api/v1/chat request | session_id=%s | base_url=%s",
+        "Incoming /api/v1/chat request | request_id=%s | session_id=%s | base_url=%s",
+        request_id,
         request.session_id,
         request.model_ip,
     )
     agent_chat_logger.info(
-        "request=%s",
+        "request_id=%s | request=%s",
+        request_id,
         json.dumps(request.model_dump(), ensure_ascii=False),
     )
 
@@ -275,8 +291,8 @@ async def agent_chat(request: AgentChatRequest):
             "duration_ms": duration_ms,
             "token_usage": _default_token_usage(),
         }
-        _log_agent_chat_token_usage(request.session_id, error_payload["token_usage"])
-        agent_chat_logger.info("response=%s", json.dumps(error_payload, ensure_ascii=False))
+        _log_agent_chat_token_usage(request_id, request.session_id, error_payload["token_usage"])
+        agent_chat_logger.info("request_id=%s | response=%s", request_id, json.dumps(error_payload, ensure_ascii=False))
         return error_payload
 
     with _session_lock:
@@ -303,9 +319,9 @@ async def agent_chat(request: AgentChatRequest):
         else:
             response_payload["response"] = property_result["message"]
 
-    _log_agent_chat_token_usage(request.session_id, response_payload["token_usage"])
-    logger.info(f"Final Response | {response_payload}")
-    agent_chat_logger.info("response=%s", json.dumps(response_payload, ensure_ascii=False))
+    _log_agent_chat_token_usage(request_id, request.session_id, response_payload["token_usage"])
+    logger.info("Final Response | request_id=%s | payload=%s", request_id, response_payload)
+    agent_chat_logger.info("request_id=%s | response=%s", request_id, json.dumps(response_payload, ensure_ascii=False))
     return response_payload
 
 
