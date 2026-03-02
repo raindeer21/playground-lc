@@ -114,7 +114,7 @@ def _extract_property_result(tool_results: list[dict[str, Any]]) -> dict[str, An
 
 def _build_history_entries(result: dict[str, Any]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
-    for step in result.get("steps", []):
+    for step in result.get("compressed_steps", []):
         step_type = step.get("type")
         if step_type == "tool_calls":
             entries.append(
