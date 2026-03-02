@@ -13,7 +13,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_openai import ChatOpenAI
 
 from app.runtime_base import BaseAgentRuntime
-from app.runtime_helpers import analyze_token_usage, compress_tool_result, trim_ai_message_for_history
+from app.runtime_helpers import analyze_token_usage, compress_tool_result, extract_token_usage, trim_ai_message_for_history
 from app.skills import SkillStore
 from app.tools import AgentTools
 import asyncio
@@ -212,10 +212,12 @@ class AgentRuntime(BaseAgentRuntime):
     async def _select_skills_for_request(self, messages: list[dict[str, Any]]) -> list[str]:
         headers = self.skill_store.headers()
         if not headers:
+            self._logger.info("skill_select skipped | reason=no_headers")
             return []
 
         user_text = self._latest_user_text(messages)
         if not user_text:
+            self._logger.info("skill_select skipped | reason=no_user_text")
             return []
 
         selector_llm = ChatOpenAI(
@@ -233,9 +235,36 @@ class AgentRuntime(BaseAgentRuntime):
             f"request={user_text}"
         )
 
+        self._logger.info(
+            "skill_select input | %s",
+            json.dumps(
+                {
+                    "request": user_text,
+                    "skill_count": len(headers),
+                    "skill_ids": [item.get("skill_id") for item in headers],
+                },
+                ensure_ascii=False,
+            ),
+        )
+
         try:
             response = selector_llm.invoke([HumanMessage(content=prompt)])
-            return self._parse_selected_skill_ids(str(response.content), headers)
+            selected_skills = self._parse_selected_skill_ids(str(response.content), headers)
+            self._logger.info(
+                "skill_select token_usage | %s",
+                json.dumps(extract_token_usage(response), ensure_ascii=False),
+            )
+            self._logger.info(
+                "skill_select output | %s",
+                json.dumps(
+                    {
+                        "selected_skills": selected_skills,
+                        "raw_response": str(response.content),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            return selected_skills
         except Exception:
             self._logger.exception("skill_select failed")
             return []
