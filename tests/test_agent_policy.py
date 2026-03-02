@@ -261,6 +261,20 @@ def test_parse_selected_skill_ids_filters_unknown_and_duplicates() -> None:
     assert parsed == ["property_search", "property_management"]
 
 
+def test_parse_selected_skill_ids_handles_structured_output_with_raw_response() -> None:
+    headers = [
+        {"skill_id": "property_search", "name": "search", "description": ""},
+        {"skill_id": "property_management", "name": "actions", "description": ""},
+    ]
+
+    parsed = AgentRuntime._parse_selected_skill_ids(
+        '{"selected_skills": [], "raw_response": "\\n\\n[{\"skill_id\": \"property_search\"}]"}',
+        headers,
+    )
+
+    assert parsed == ["property_search"]
+
+
 def test_system_prompt_contains_skill_select_block() -> None:
     runtime = AgentRuntime.__new__(AgentRuntime)
 
