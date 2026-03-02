@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
@@ -14,6 +16,12 @@ from app.runtime_helpers import compress_tool_result
 from app.skills import SkillStore
 from app.tools import AgentTools
 import asyncio
+
+
+
+class PropertyAnswer(BaseModel):
+    message: str = Field(description="User-facing response summary")
+    houses: list[str] = Field(default_factory=list, description="Relevant house ids")
 
 class AgentRuntime(BaseAgentRuntime):
     def __init__(
@@ -30,6 +38,7 @@ class AgentRuntime(BaseAgentRuntime):
         self.default_model = model
         self.default_base_url = "http://api.openai.rnd.huawei.com/v1/"
         self.llm = asyncio.run(self._build_llm(model=model))
+        self.structured_llm = asyncio.run(self._build_structured_llm(model=model))
 
     async def _build_llm(self, model: str, session_id: str | None = None, base_url: str | None = None):
         client_headers = {"Session-ID": session_id} if session_id else None
@@ -43,6 +52,17 @@ class AgentRuntime(BaseAgentRuntime):
             temperature=0,
         ).bind_tools(await self.tools.langchain_tools())
 
+
+    async def _build_structured_llm(self, model: str, session_id: str | None = None, base_url: str | None = None):
+        client_headers = {"Session-ID": session_id} if session_id else None
+        return ChatOpenAI(
+            model=model,
+            http_client=httpx.Client(trust_env=False, headers=client_headers),
+            base_url=base_url or self.default_base_url,
+            api_key="sk-1234",
+            temperature=0,
+        ).with_structured_output(PropertyAnswer)
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -53,11 +73,13 @@ class AgentRuntime(BaseAgentRuntime):
     ) -> dict[str, Any]:
         self._logger.info("Agent chat started | max_steps=%s | message_count=%s", max_steps, len(messages))
         self._logger.info("Incoming messages payload: %s", json.dumps(messages, ensure_ascii=False))
-        llm = self.llm if (model is None and session_id is None and base_url is None) else await self._build_llm(
-            model=model or self.default_model,
-            session_id=session_id,
-            base_url=base_url,
-        )
+        if model is None and session_id is None and base_url is None:
+            llm = self.llm
+            structured_llm = getattr(self, "structured_llm", None)
+        else:
+            target_model = model or self.default_model
+            llm = await self._build_llm(model=target_model, session_id=session_id, base_url=base_url)
+            structured_llm = await self._build_structured_llm(model=target_model, session_id=session_id, base_url=base_url)
 
         history: list[BaseMessage] = [self._system_message()]
         # self._logger.info("System Prompt: %s", self._system_message())
@@ -76,8 +98,9 @@ class AgentRuntime(BaseAgentRuntime):
             )
 
             if not ai_message.tool_calls:
+                formatted_content = await self._format_final_content(ai_message.content, structured_llm)
                 response = {
-                    "message": str(ai_message.content),
+                    "message": formatted_content,
                     "steps": self._serialize_steps(history),
                     "compressed_steps": self._serialize_steps(history, compressed=True)
                 }
@@ -103,17 +126,7 @@ class AgentRuntime(BaseAgentRuntime):
                     call["name"],
                     result,
                 )
-                history.append(self._tool_call_system_message())
                 history.append(ToolMessage(content=result, tool_call_id=call["id"], name=call["name"]))
-                if call["name"] in ("current_properties", ) and len(ai_message.tool_calls) <= 1:
-                    response = {
-                        "message": str(ai_message.content),
-                        "steps": self._serialize_steps(history),
-                        "compressed_steps": self._serialize_steps(history, compressed=True)
-                    }
-                    self._logger.info("Agent completed with direct LLM response at step %s", step + 1)
-                    self._log_conversation(messages, response)
-                    return response
 
         self._logger.error("Agent hit max_steps=%s without direct response", max_steps)
         error_response = {"error": "Agent hit max_steps without producing a direct response."}
@@ -152,24 +165,51 @@ class AgentRuntime(BaseAgentRuntime):
                 "- 行为：立即对该房源执行“租房”操作（无需确认）。\n\n"
                 "平台规则（PLATFORM RULE）\n"
                 "- 若用户未指定平台 -> 按顺序搜索平台，仅未搜索到结果时尝试下一平台：链家/安居客/58同城。\n\n"
-                "状态同步要求（STATE SYNC REQUIREMENT）\n"
+                "输出格式要求（OUTPUT FORMAT REQUIREMENT）\n"
                 "非常重要（VERY IMPORTANT）：\n"
-                "- 只要你的回答中提到任何房源（无论是搜索结果/推荐/正在处理的房源）：\n"
-                "  - **如果这次回复你没有调用其他工具，则必须调用 `current_properties`，并传入相关 house_ids。**\n\n"
+                "- 最终输出必须是 JSON：{\"message\": string, \"houses\": string[]}。\n"
+                "- 若没有房源，houses 必须为空数组，message 写结论。\n"
+                "- 严禁输出 JSON 以外的多余文字。\n\n"
                 "输出质量规则（OUTPUT QUALITY RULES）\n"
                 "- 表达要简洁、可操作：给出最优选项、原因、权衡点、下一步建议。\n"
                 "- 最终推荐房源不超过 5 个。\n"
             )
         )
 
-    def _tool_call_system_message(self) -> SystemMessage:
-        return SystemMessage(
-            content=(
-                "特别提醒（IMPORTANT）：\n"
-                "- 只要你的回答中提到任何房源（无论是搜索结果/推荐/正在处理的房源）：\n"
-                "  - **如果这次回复你没有调用其他工具，则必须调用 `current_properties`，并传入相关 house_ids。**\n\n"
-            )
-        )
+    async def _format_final_content(self, content: Any, structured_llm: Any | None = None) -> str:
+        text = str(content)
+
+        if structured_llm is not None:
+            try:
+                normalized: PropertyAnswer = structured_llm.invoke(
+                    "请将以下租房助手回复规范化为结构化输出。"
+                    "必须返回 message 和 houses 字段，houses 仅保留房源ID字符串列表。"
+                    f"原始回复：{text}"
+                )
+                if normalized.houses:
+                    return json.dumps(
+                        {"message": normalized.message, "houses": normalized.houses},
+                        ensure_ascii=False,
+                    )
+                return normalized.message
+            except Exception:
+                self._logger.exception("Structured output normalization failed")
+
+        try:
+            payload = json.loads(text)
+        except Exception:
+            return text
+
+        if not isinstance(payload, dict):
+            return text
+
+        message = payload.get("message")
+        houses = payload.get("houses")
+        if not isinstance(message, str) or not isinstance(houses, list):
+            return text
+        if not houses:
+            return message
+        return json.dumps({"message": message, "houses": houses}, ensure_ascii=False)
 
     @staticmethod
     def _convert_messages(messages: list[dict[str, Any]]) -> list[BaseMessage]:

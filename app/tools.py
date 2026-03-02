@@ -48,11 +48,6 @@ class WebRequestInput(BaseModel):
     body: str | None = Field(default=None)
 
 
-class ProvidePropertyResultListInput(BaseModel):
-    message: str = Field(default="为您找到以下符合条件的房源：", description="User-facing message")
-    houses: list[str] = Field(default_factory=list, description="Matched house_id list")
-
-
 class HouseSearchInput(BaseModel):
     district: str | None = Field(default=None, description="行政区")
     area: str | None = Field(default=None, description="商圈，逗号分隔")
@@ -162,19 +157,6 @@ def web_request(method: str, url: str, headers: dict[str, str] | None = None, bo
 # ) -> str:
 #     return web_request(method=method, url=url, headers=headers, body=body)
 
-
-@mcp.tool(
-    name="current_properties",
-    description=(
-        "提供与本次对话相关的房源信息。"
-            "触发条件：用户提出找房/搜索/推荐/筛选房源（按条件过滤）、查看房源详情、对比各平台挂牌信息，"
-            "或执行租房、退租/解除租约、下架等操作；"
-            "也适用于对已讨论过的房源进行总结或再次引用时。"
-    ),
-)
-def current_properties(message: str = "为您找到以下符合条件的房源：", houses: list[str] | None = None) -> str:
-    payload = ProvidePropertyResultListInput(message=message, houses=houses or [])
-    return payload.model_dump_json(ensure_ascii=False)
 
 
 def _extract_house_ids(payload: object) -> list[str]:

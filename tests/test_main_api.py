@@ -21,27 +21,18 @@ class _DummyRuntime:
 
 
 class _PropertyResultRuntime:
-    def chat(self, _messages, **_kwargs):
+    async def chat(self, _messages, **_kwargs):
         return {
-            "message": "done",
-            "steps": [
-                {
-                    "type": "tool_calls",
-                    "tool_calls": [
-                        {
-                            "name": "provide_property_result_list",
-                            "args": {
-                                "message": "为您找到以下符合条件的房源：",
-                                "houses": ["HF_4", "HF_6", "HF_277"],
-                            },
-                        }
-                    ],
-                },
-                {
-                    "type": "tool_result",
-                    "content": '{"message":"为您找到以下符合条件的房源：","houses":["HF_4","HF_6","HF_277"]}',
-                },
-            ],
+            "message": '{"message":"为您找到以下符合条件的房源：","houses":["HF_4","HF_6","HF_277"]}',
+            "steps": [],
+        }
+
+
+class _EmptyPropertyResultRuntime:
+    async def chat(self, _messages, **_kwargs):
+        return {
+            "message": '{"message":"暂无符合条件的房源","houses":[]}',
+            "steps": [],
         }
 
 
@@ -255,6 +246,7 @@ def test_agent_chat_returns_property_result_when_tool_called(monkeypatch) -> Non
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "success"
+    assert payload["response"] == "{\"message\": \"为您找到以下符合条件的房源：\", \"houses\": [\"HF_4\", \"HF_6\", \"HF_277\"]}"
     assert payload["message"] == "为您找到以下符合条件的房源："
     assert payload["houses"] == ["HF_4", "HF_6", "HF_277"]
 
@@ -280,3 +272,21 @@ def test_agent_chat_only_keeps_tool_history_for_most_recent_two_user_requests(mo
     tool_messages = [msg for msg in third_call_messages if msg.get("role") == "tool"]
     assert len(tool_messages) == 1
     assert tool_messages[0]["content"] == "ok"
+
+
+def test_agent_chat_returns_message_only_when_houses_empty(monkeypatch) -> None:
+    from app import main
+
+    monkeypatch.setattr(main, "runtime", _EmptyPropertyResultRuntime())
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/v1/chat",
+        json={"model_ip": "http://127.0.0.1:11434/v1", "session_id": "abc126", "message": "帮我找房"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert payload["response"] == "暂无符合条件的房源"
+    assert "houses" not in payload
