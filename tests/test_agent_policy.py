@@ -62,6 +62,9 @@ async def test_chat_returns_direct_response_when_llm_emits_no_tool_calls() -> No
         def headers(self):
             return []
 
+        def tool_whitelist_for(self, _selected_skills):
+            return None
+
     class _DummyLLM:
         def invoke(self, _history):
             from langchain_core.messages import AIMessage
@@ -290,3 +293,59 @@ def test_system_prompt_contains_skill_select_block() -> None:
     assert "SKILL_HEADERS" in content
     assert "SKILL_SELECT" in content
     assert "property_search" in content
+
+
+def test_chat_short_circuits_when_tool_call_sets_final_answer_true() -> None:
+    from langchain_core.messages import AIMessage
+    import logging
+
+    runtime = AgentRuntime.__new__(AgentRuntime)
+
+    class _DummySkillStore:
+        def headers(self):
+            return []
+
+        def tool_whitelist_for(self, _selected_skills):
+            return None
+
+    class _DummyLLM:
+        def __init__(self):
+            self.calls = 0
+
+        def invoke(self, _history):
+            self.calls += 1
+            if self.calls > 1:
+                raise AssertionError("LLM should not be invoked again after final_answer tool call")
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call_final_1",
+                        "name": "get_houses_by_platform",
+                        "args": {"district": "海淀", "page_size": 5, "final_answer": True},
+                    }
+                ],
+            )
+
+    class _DummyTools:
+        async def dispatch_tool(self, _name, _args):
+            return json.dumps({"houses": [{"houseid": "HF_4", "platforms": ["链家"]}, {"houseid": "HF_6", "platforms": ["安居客"]}]}, ensure_ascii=False)
+
+    async def _select_skills(_messages):
+        return []
+
+    runtime.skill_store = _DummySkillStore()
+    runtime.tools = _DummyTools()
+    runtime.llm = _DummyLLM()
+    runtime.structured_llm = None
+    runtime._logger = logging.getLogger(__name__)
+    runtime.conversation_log_path = Path('/tmp/test_agent_conversations.jsonl')
+    runtime.default_model = "qwen3-32b"
+    runtime._select_skills_for_request = _select_skills
+
+    response = asyncio.run(runtime.chat([{"role": "user", "content": "帮我找房"}], max_steps=3))
+
+    assert response["message"] == '{"message":"为您找到以下符合条件的房源：","houses":["HF_4","HF_6"]}'
+    assert len(response["steps"]) == 2
+    assert response["steps"][0]["type"] == "tool_calls"
+    assert response["steps"][1]["type"] == "tool_result"

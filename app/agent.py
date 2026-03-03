@@ -150,7 +150,8 @@ class AgentRuntime(BaseAgentRuntime):
                     call["name"],
                     json.dumps(call["args"], ensure_ascii=False),
                 )
-                result = await self.tools.dispatch_tool(call["name"], call["args"])
+                call_args = call.get("args", {})
+                result = await self.tools.dispatch_tool(call["name"], call_args)
 
                 tool_name = call["name"]
                 result = compress_tool_result(tool_name, result)
@@ -163,10 +164,80 @@ class AgentRuntime(BaseAgentRuntime):
                 )
                 history.append(ToolMessage(content=result, tool_call_id=call["id"], name=call["name"]))
 
+                if self._is_final_answer_tool_call(call_args):
+                    final_content = self._build_property_answer_from_tool_result(result)
+                    history.append(AIMessage(content=final_content))
+                    token_usage = analyze_token_usage(token_usage_history)
+                    usage_insights = token_usage.pop("analysis", {})
+                    self._logger.info(
+                        "Token usage insights | llm_calls=%s | tool_call_steps=%s | final_response_steps=%s | avg_tokens_per_call=%s",
+                        usage_insights.get("llm_calls", 0),
+                        usage_insights.get("tool_call_steps", 0),
+                        usage_insights.get("final_response_steps", 0),
+                        usage_insights.get("avg_tokens_per_call", 0),
+                    )
+                    response = {
+                        "message": final_content,
+                        "steps": self._serialize_steps(history),
+                        "compressed_steps": self._serialize_steps(history, compressed=True),
+                        "token_usage": token_usage,
+                    }
+                    self._logger.info(
+                        "Agent completed with final_answer short-circuit | step=%s | tool=%s",
+                        step + 1,
+                        call["name"],
+                    )
+                    self._log_conversation(messages, response)
+                    return response
+
         self._logger.error("Agent hit max_steps=%s without direct response", max_steps)
         error_response = {"error": "Agent hit max_steps without producing a direct response."}
         self._log_conversation(messages, error_response)
         return error_response
+
+    @staticmethod
+    def _is_final_answer_tool_call(args: dict[str, Any]) -> bool:
+        return bool(args.get("final_answer") is True)
+
+    @staticmethod
+    def _extract_house_ids_from_tool_payload(payload: Any) -> list[str]:
+        if not isinstance(payload, dict):
+            return []
+
+        houses = payload.get("houses")
+        if not isinstance(houses, list):
+            return []
+
+        house_ids: list[str] = []
+        for item in houses:
+            if isinstance(item, str):
+                house_ids.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            for key in ("houseid", "house_id", "id"):
+                value = item.get(key)
+                if isinstance(value, str):
+                    house_ids.append(value)
+                    break
+        return house_ids
+
+    @classmethod
+    def _build_property_answer_from_tool_result(cls, tool_result: str) -> str:
+        house_ids: list[str] = []
+        try:
+            parsed = json.loads(tool_result)
+        except Exception:
+            parsed = None
+
+        if isinstance(parsed, dict):
+            house_ids = cls._extract_house_ids_from_tool_payload(parsed)
+
+        payload = PropertyAnswer(
+            message="为您找到以下符合条件的房源：" if house_ids else "暂无符合条件的房源",
+            houses=house_ids,
+        )
+        return payload.model_dump_json(ensure_ascii=False)
 
     def _system_message(self, selected_skills: list[str] | None = None) -> SystemMessage:
         headers = self.skill_store.headers()

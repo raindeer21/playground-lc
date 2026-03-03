@@ -204,13 +204,12 @@ def _append_house_platform(
         platforms.append(platform)
 
 
-# @mcp.tool(
-#     name="get_houses_by_platform_simple",
-#     description="触发器：不需要具体信息，仅搜索房源列表时优先使用该工具。"
-#                 "仅当需要房屋的具体信息时使用get_houses_by_platform。"
-#                 "根据筛选条件分别获取三大平台（链家/安居客/58同城）的房源，并返回 {houseid, platform} 列表。",
-# )
-def get_houses_by_platform_simple(
+@mcp.tool(
+    name="get_houses_by_platform",
+    description="触发器：不需要房屋具体信息，仅搜索房源列表时优先使用该工具。"
+                "根据筛选条件分别获取三大平台（链家/安居客/58同城）的房源，并返回 {houseid, platforms} 列表。",
+)
+def get_houses_by_platform(
     district: Annotated[str | None, Field(description="行政区")] = None,
     area: Annotated[str | None, Field(description="商圈，逗号分隔")] = None,
     min_price: Annotated[int | None, Field(description="最低月租金（元）")] = None,
@@ -234,6 +233,7 @@ def get_houses_by_platform_simple(
     page: Annotated[int | None, Field(description="页码")] = 1,
     page_size: Annotated[int, Field(description="每页数量")] = 5,
     detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
+    final_answer: Annotated[bool, Field(description="当该次调用是用户请求的最终结果时，请填写true，该结果会直接提供给用户。")] = False,
 ) -> str:
     params = HouseSearchInput(
         district=district,
@@ -295,19 +295,19 @@ def get_houses_by_platform_simple(
     return json.dumps(result, ensure_ascii=False)
 
 
-# @mcp.tool(
-#     name="get_houses_nearby_simple",
-#     description="触发器：不需要具体信息，仅搜索房源列表时优先使用该工具。"
-#                 "仅当需要房屋的具体信息时使用 get_houses_nearby。"
-#                 "以地标为圆心查附近房源，分别获取三大平台（链家/安居客/58同城）的房源，并返回 {houseid, platform} 列表。"
-#                 "必须先使用search_landmarks获取精准地标名称/ID后，才能调用该接口。以地标为圆心，查询在指定距离内的可租房源，返回带直线距离、步行距离、步行时间。",
-# )
-def get_houses_nearby_simple(
+@mcp.tool(
+    name="get_houses_nearby",
+    description="触发器：不需要房屋具体信息，仅搜索房源列表时优先使用该工具。"
+                "以地标为圆心查附近房源，分别获取三大平台（链家/安居客/58同城）的房源，并返回 {houseid, platforms} 列表。"
+                "必须先使用search_landmarks获取精准地标名称/ID后，才能调用该接口。",
+)
+def get_houses_nearby(
     landmark_id: Annotated[str, Field(description="地标ID")],
     max_distance: Annotated[int | None, Field(description="最大距离（米）")] = None,
     page: Annotated[int | None, Field(description="页码")] = 1,
     page_size: Annotated[int, Field(description="每页数量")] = 5,
     detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
+    final_answer: Annotated[bool, Field(description="当该次调用是用户请求的最终结果时，请填写true，该结果会直接提供给用户。")] = False,
 ) -> str:
     params = HouseNearbySearchInput(
         landmark_id=landmark_id,
@@ -351,15 +351,19 @@ def get_houses_nearby_simple(
     return json.dumps(result, ensure_ascii=False)
 
 
-# @mcp.tool(
-#     name="get_houses_by_community",
-#     description="根据小区名分别调用三大平台（链家/安居客/58同城）的 get_houses_by_community 接口，并返回 {houseid, platform} 列表。",
-# )
-def get_houses_list_by_community(
+@mcp.tool(
+    name="get_houses_by_community",
+    description="根据小区名分别调用三大平台（链家/安居客/58同城）的 get_houses_by_community 接口，并返回 {houseid, platforms} 列表。",
+)
+def get_houses_by_community(
     community: Annotated[str, Field(description="小区名")],
     page: Annotated[int | None, Field(description="页码")] = 1,
     page_size: Annotated[int, Field(description="每页数量")] = 5,
     detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
+    final_answer: Annotated[
+        bool,
+        Field(description="当该次调用是用户请求的最终结果时，请填写true，该结果会直接提供给用户。"),
+    ] = False,
 ) -> str:
     params = HouseCommunitySearchInput(
         community=community,
