@@ -173,8 +173,6 @@ class AgentRuntime(BaseAgentRuntime):
         selected = selected_skills or []
         return SystemMessage(
             content=(
-                f"可用技能头（SKILL_HEADERS）: {json.dumps(headers, ensure_ascii=False)}\n"
-                f"本轮已选技能（SKILL_SELECT）: {json.dumps(selected, ensure_ascii=False)}\n\n"
                 "角色（ROLE）\n"
                 "- 你是租房方向的专业房产中介，专注于：找房 / 对比 / 租房 / 退租 / 下架。\n"
                 "- 你是专业的工作人员，需要简要且直接地回答问题，不要长篇大论，直接说结论（如：没有房源，有以下房源），不要给出额外建议。\n"
