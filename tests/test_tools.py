@@ -302,7 +302,7 @@ def test_extract_house_ids_supports_nested_data_houses() -> None:
 
 
 def test_get_houses_by_platform_simple_detailed_returns_untrimmed_http_payloads(monkeypatch) -> None:
-    from app.tools import get_houses_by_platform_simple
+    from app.tools import get_houses_by_platform
 
     class _Response:
         def __init__(self, payload):
@@ -335,7 +335,7 @@ def test_get_houses_by_platform_simple_detailed_returns_untrimmed_http_payloads(
 
     monkeypatch.setattr("app.tools.httpx.Client", _DummyClient)
 
-    payload = json.loads(get_houses_by_platform_simple(district="海淀", page_size=5, detailed=True))
+    payload = json.loads(get_houses_by_platform(district="海淀", page_size=5, detailed=True))
 
     assert "houses" not in payload
     assert payload["raw_results"] == [
@@ -346,7 +346,7 @@ def test_get_houses_by_platform_simple_detailed_returns_untrimmed_http_payloads(
 
 
 def test_get_houses_nearby_simple_detailed_returns_untrimmed_http_payloads(monkeypatch) -> None:
-    from app.tools import get_houses_nearby_simple
+    from app.tools import get_houses_nearby
 
     class _Response:
         def __init__(self, payload):
@@ -379,7 +379,7 @@ def test_get_houses_nearby_simple_detailed_returns_untrimmed_http_payloads(monke
 
     monkeypatch.setattr("app.tools.httpx.Client", _DummyClient)
 
-    payload = json.loads(get_houses_nearby_simple(landmark_id="LM_1", page_size=5, detailed=True))
+    payload = json.loads(get_houses_nearby(landmark_id="LM_1", page_size=5, detailed=True))
 
     assert "houses" not in payload
     assert payload["raw_results"][0]["result"]["houses"][0]["walk_time"] == 8
