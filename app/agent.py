@@ -73,7 +73,7 @@ class AgentRuntime(BaseAgentRuntime):
             base_url=base_url or self.default_base_url,
             api_key="sk-1234",
             temperature=0,
-        ).with_structured_output(PropertyAnswer)
+        ).with_structured_output(PropertyAnswer, include_raw=True)
 
     async def chat(
         self,
@@ -123,7 +123,15 @@ class AgentRuntime(BaseAgentRuntime):
             )
 
             if not ai_message.tool_calls:
-                formatted_content = await self._format_final_content(ai_message.content, structured_llm)
+                formatted_content = await self._format_final_content(ai_message.content)
+                if structured_llm is not None:
+                    formatted_content, structured_raw = await self._normalize_with_structured_llm(
+                        content=ai_message.content,
+                        fallback_content=formatted_content,
+                        structured_llm=structured_llm,
+                    )
+                    if structured_raw is not None:
+                        token_usage_history.append(structured_raw)
                 token_usage = analyze_token_usage(token_usage_history)
                 usage_insights = token_usage.pop("analysis", {})
                 self._logger.info(
@@ -343,24 +351,68 @@ class AgentRuntime(BaseAgentRuntime):
                 return message
             return json.dumps({"message": message, "houses": houses}, ensure_ascii=False)
 
-        if structured_llm is not None:
-            try:
-                normalized: PropertyAnswer = structured_llm.invoke(
-                    "请将以下租房助手回复规范化为结构化输出。"
-                    "必须返回 message 和 houses 字段，houses 仅保留房源ID字符串列表。"
-                    "仅输出纯 JSON，不要使用 markdown 代码块。"
-                    f"原始回复：{text}"
-                )
-                if normalized.houses:
-                    return json.dumps(
-                        {"message": normalized.message, "houses": normalized.houses},
-                        ensure_ascii=False,
-                    )
-                return normalized.message
-            except Exception:
-                self._logger.exception("Structured output normalization failed")
-
         return cleaned_text
+
+    async def _normalize_with_structured_llm(
+        self,
+        content: Any,
+        fallback_content: str,
+        structured_llm: Any,
+    ) -> tuple[str, BaseMessage | None]:
+        text = str(content).strip()
+
+        try:
+            normalized = structured_llm.invoke(
+                "请将以下租房助手回复规范化为结构化输出。"
+                "必须返回 message 和 houses 字段，houses 仅保留房源ID字符串列表。"
+                "仅输出纯 JSON，不要使用 markdown 代码块。"
+                f"原始回复：{text}"
+            )
+            parsed_payload: PropertyAnswer | None = None
+            raw_message: BaseMessage | None = None
+
+            if isinstance(normalized, dict):
+                parsed_candidate = normalized.get("parsed")
+                if isinstance(parsed_candidate, PropertyAnswer):
+                    parsed_payload = parsed_candidate
+                elif isinstance(parsed_candidate, dict):
+                    parsed_payload = self._coerce_property_answer(parsed_candidate)
+
+                raw_candidate = normalized.get("raw")
+                if isinstance(raw_candidate, BaseMessage):
+                    raw_message = raw_candidate
+
+                parsing_error = normalized.get("parsing_error")
+                if parsing_error is not None:
+                    self._logger.warning("Structured output parsing error: %s", parsing_error)
+            elif isinstance(normalized, PropertyAnswer):
+                parsed_payload = normalized
+
+            if parsed_payload is None:
+                return fallback_content, raw_message
+
+            if parsed_payload.houses:
+                return (
+                    json.dumps(
+                        {"message": parsed_payload.message, "houses": parsed_payload.houses},
+                        ensure_ascii=False,
+                    ),
+                    raw_message,
+                )
+            return parsed_payload.message, raw_message
+        except Exception:
+            self._logger.exception("Structured output normalization failed")
+            return fallback_content, None
+
+    @staticmethod
+    def _coerce_property_answer(payload: dict[str, Any]) -> PropertyAnswer | None:
+        message = payload.get("message")
+        houses = payload.get("houses")
+        if not isinstance(message, str) or not isinstance(houses, list):
+            return None
+
+        house_ids = [item for item in houses if isinstance(item, str)]
+        return PropertyAnswer(message=message, houses=house_ids)
 
     @staticmethod
     def _strip_markdown_code_fence(text: str) -> str:
