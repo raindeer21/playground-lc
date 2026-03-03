@@ -222,8 +222,8 @@ def test_get_houses_list_nearby_calls_all_platforms_and_returns_house_platform_p
 
 
 
-def test_get_houses_list_by_community_calls_all_platforms_and_returns_house_platform_pairs(monkeypatch) -> None:
-    from app.tools import get_houses_list_by_community
+def test_get_houses_by_community_calls_all_platforms_and_returns_house_platform_pairs(monkeypatch) -> None:
+    from app.tools import get_houses_by_community
 
     captured_requests: list[dict[str, object]] = []
 
@@ -259,7 +259,7 @@ def test_get_houses_list_by_community_calls_all_platforms_and_returns_house_plat
 
     monkeypatch.setattr("app.tools.httpx.Client", _DummyClient)
 
-    payload = json.loads(get_houses_list_by_community(community="建清园(南区)", page_size=5))
+    payload = json.loads(get_houses_by_community(community="建清园(南区)", page_size=5))
 
     assert [r["params"]["listing_platform"] for r in captured_requests] == ["链家", "安居客", "58同城"]
     assert all(r["path"] == "/api/houses/by_community" for r in captured_requests)
@@ -386,8 +386,8 @@ def test_get_houses_nearby_simple_detailed_returns_untrimmed_http_payloads(monke
     assert [item["platform"] for item in payload["raw_results"]] == ["链家", "安居客", "58同城"]
 
 
-def test_get_houses_list_by_community_detailed_returns_untrimmed_http_payloads(monkeypatch) -> None:
-    from app.tools import get_houses_list_by_community
+def test_get_houses_by_community_detailed_returns_untrimmed_http_payloads(monkeypatch) -> None:
+    from app.tools import get_houses_by_community
 
     class _Response:
         def __init__(self, payload):
@@ -420,7 +420,7 @@ def test_get_houses_list_by_community_detailed_returns_untrimmed_http_payloads(m
 
     monkeypatch.setattr("app.tools.httpx.Client", _DummyClient)
 
-    payload = json.loads(get_houses_list_by_community(community="建清园(南区)", page_size=5, detailed=True))
+    payload = json.loads(get_houses_by_community(community="建清园(南区)", page_size=5, detailed=True))
 
     assert "houses" not in payload
     assert payload["raw_results"][2] == {"platform": "58同城", "result": {"houses": [{"house_id": "C103", "floor": "11/22"}]}}

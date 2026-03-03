@@ -406,25 +406,6 @@ def get_houses_by_community(
     return json.dumps(result, ensure_ascii=False)
 
 
-def get_houses_list_by_community(
-    community: Annotated[str, Field(description="小区名")],
-    page: Annotated[int | None, Field(description="页码")] = 1,
-    page_size: Annotated[int, Field(description="每页数量")] = 5,
-    detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
-    final_answer: Annotated[
-        bool,
-        Field(description="当该次调用是用户请求的最终结果时，请填写true，该结果会直接提供给用户。"),
-    ] = False,
-) -> str:
-    return get_houses_by_community(
-        community=community,
-        page=page,
-        page_size=page_size,
-        detailed=detailed,
-        final_answer=final_answer,
-    )
-
-
 def _normalize_openapi_spec(spec: dict) -> dict:
     normalized = deepcopy(spec)
     for path_item in normalized.get("paths", {}).values():
