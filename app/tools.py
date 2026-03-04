@@ -86,6 +86,10 @@ class HouseCommunitySearchInput(BaseModel):
     page_size: int = Field(default=5, description="每页数量")
 
 
+class LandmarkSearchInput(BaseModel):
+    name: str = Field(..., description="地标名称")
+
+
 def set_skill_store(skill_store: SkillStore) -> None:
     global _skill_store
     _skill_store = skill_store
@@ -197,6 +201,44 @@ def _append_house_platform(
         return
     if platform not in platforms:
         platforms.append(platform)
+
+
+@mcp.tool(
+    name="search_landmarks",
+    description="根据地标名称搜索地标并返回首个匹配地标ID。输入name，输出id。",
+)
+def search_landmarks(name: Annotated[str, Field(description="地标名称")]) -> str:
+    params = LandmarkSearchInput(name=name).model_dump()
+    with _openapi_spec_path.open("r", encoding="utf-8") as fp:
+        openapi_spec = json.load(fp)
+    server = openapi_spec.get("servers", [{}])[0].get("url", "")
+
+    try:
+        with httpx.Client(base_url=server, timeout=20, trust_env=False) as client:
+            response = client.get("/api/landmarks/search", params={"q": params["name"]})
+            response.raise_for_status()
+            payload = response.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("search_landmarks failed | name=%s", name)
+        return json.dumps({"error": str(exc)}, ensure_ascii=False)
+
+    items: list[dict[str, object]] = []
+    if isinstance(payload, list):
+        items = [item for item in payload if isinstance(item, dict)]
+    elif isinstance(payload, dict):
+        for key in ("items", "results", "data"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                items = [item for item in value if isinstance(item, dict)]
+                break
+
+    if not items:
+        return json.dumps({"name": name, "id": None}, ensure_ascii=False)
+
+    first = items[0]
+    landmark_id = first.get("id") if isinstance(first.get("id"), str) else None
+    landmark_name = first.get("name") if isinstance(first.get("name"), str) else name
+    return json.dumps({"name": landmark_name, "id": landmark_id}, ensure_ascii=False)
 
 
 @mcp.tool(
@@ -402,6 +444,7 @@ def get_houses_by_community(
 
 def _normalize_openapi_spec(spec: dict) -> dict:
     normalized = deepcopy(spec)
+    normalized.get("paths", {}).pop("/api/landmarks/search", None)
     for path_item in normalized.get("paths", {}).values():
         for operation in path_item.values():
             if not isinstance(operation, dict):
