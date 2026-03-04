@@ -153,6 +153,52 @@ class AgentRuntime(BaseAgentRuntime):
         self._logger.info("Agent chat started | max_steps=%s | message_count=%s", max_steps, len(messages))
         self._logger.info("Incoming messages payload: %s", json.dumps(messages, ensure_ascii=False))
         target_model = model or self.default_model
+        llm, structured_llm, history = await self._prepare_chat_dependencies(
+            messages=messages,
+            target_model=target_model,
+            model=model,
+            session_id=session_id,
+            base_url=base_url,
+        )
+        token_usage_history: list[BaseMessage] = []
+
+        for step in range(max_steps):
+            ai_message = self._run_llm_step(llm=llm, history=history, step=step, token_usage_history=token_usage_history)
+
+            if not ai_message.tool_calls:
+                response = await self._finalize_direct_response(
+                    messages=messages,
+                    history=history,
+                    structured_llm=structured_llm,
+                    token_usage_history=token_usage_history,
+                    ai_content=ai_message.content,
+                    step=step,
+                )
+                return response
+
+            tool_response = await self._process_tool_calls(
+                messages=messages,
+                history=history,
+                token_usage_history=token_usage_history,
+                tool_calls=ai_message.tool_calls,
+                step=step,
+            )
+            if tool_response is not None:
+                return tool_response
+
+        self._logger.error("Agent hit max_steps=%s without direct response", max_steps)
+        error_response = {"error": "Agent hit max_steps without producing a direct response."}
+        self._log_conversation(messages, error_response)
+        return error_response
+
+    async def _prepare_chat_dependencies(
+        self,
+        messages: list[dict[str, Any]],
+        target_model: str,
+        model: str | None,
+        session_id: str | None,
+        base_url: str | None,
+    ) -> tuple[Any, Any | None, list[BaseMessage]]:
         llm_builder = self._build_llm_builder(session_id=session_id, base_url=base_url)
         tiny_agent = self._make_tiny_agent(
             llm_builder=llm_builder,
@@ -162,7 +208,6 @@ class AgentRuntime(BaseAgentRuntime):
 
         selected_skills = await self._select_skills_for_request(messages, tiny_agent=tiny_agent)
         self._logger.info("skill_select result | selected_skills=%s", selected_skills)
-
         allowed_tools = self.skill_store.tool_whitelist_for(selected_skills)
 
         if model is None and session_id is None and base_url is None and not selected_skills:
@@ -175,100 +220,119 @@ class AgentRuntime(BaseAgentRuntime):
                 base_url=base_url,
                 allowed_tools=allowed_tools,
             )
-            structured_llm = await self._build_structured_llm(model=target_model, session_id=session_id, base_url=base_url, allowed_tools=allowed_tools)
-
-        history: list[BaseMessage] = [self._system_message(selected_skills=selected_skills)]
-        # self._logger.info("System Prompt: %s", self._system_message())
-        history.extend(self._convert_messages(messages))
-        token_usage_history: list[BaseMessage] = []
-
-        for step in range(max_steps):
-            self._logger.info("Invoking LLM at step %s", step + 1)
-            self._logger.info(f"History | {history}")
-            raw_ai_message = llm.invoke(history,
-                                        config={"callbacks": [langfuse_handler]})
-            token_usage_history.append(raw_ai_message)
-            ai_message = trim_ai_message_for_history(raw_ai_message)
-            history.append(ai_message)
-            self._logger.info(
-                "LLM response at step %s | content=%s | tool_calls=%s",
-                step + 1,
-                ai_message.content,
-                json.dumps(ai_message.tool_calls, ensure_ascii=False),
+            structured_llm = await self._build_structured_llm(
+                model=target_model,
+                session_id=session_id,
+                base_url=base_url,
+                allowed_tools=allowed_tools,
             )
 
-            if not ai_message.tool_calls:
-                formatted_content = await self._format_final_content(ai_message.content, structured_llm)
-                token_usage = analyze_token_usage(token_usage_history)
-                usage_insights = token_usage.pop("analysis", {})
-                self._logger.info(
-                    "Token usage insights | llm_calls=%s | tool_call_steps=%s | final_response_steps=%s | avg_tokens_per_call=%s",
-                    usage_insights.get("llm_calls", 0),
-                    usage_insights.get("tool_call_steps", 0),
-                    usage_insights.get("final_response_steps", 0),
-                    usage_insights.get("avg_tokens_per_call", 0),
+        history: list[BaseMessage] = [self._system_message(selected_skills=selected_skills)]
+        history.extend(self._convert_messages(messages))
+        return llm, structured_llm, history
+
+    def _run_llm_step(
+        self,
+        llm: Any,
+        history: list[BaseMessage],
+        step: int,
+        token_usage_history: list[BaseMessage],
+    ) -> AIMessage:
+        self._logger.info("Invoking LLM at step %s", step + 1)
+        self._logger.info(f"History | {history}")
+        raw_ai_message = llm.invoke(history, config={"callbacks": [langfuse_handler]})
+        token_usage_history.append(raw_ai_message)
+        ai_message = trim_ai_message_for_history(raw_ai_message)
+        history.append(ai_message)
+        self._logger.info(
+            "LLM response at step %s | content=%s | tool_calls=%s",
+            step + 1,
+            ai_message.content,
+            json.dumps(ai_message.tool_calls, ensure_ascii=False),
+        )
+        return ai_message
+
+    async def _finalize_direct_response(
+        self,
+        messages: list[dict[str, Any]],
+        history: list[BaseMessage],
+        structured_llm: Any | None,
+        token_usage_history: list[BaseMessage],
+        ai_content: Any,
+        step: int,
+    ) -> dict[str, Any]:
+        formatted_content = await self._format_final_content(ai_content, structured_llm)
+        response = self._build_chat_response(history=history, message=formatted_content, token_usage_history=token_usage_history)
+        self._logger.info("Agent completed with direct LLM response at step %s", step + 1)
+        self._log_conversation(messages, response)
+        return response
+
+    async def _process_tool_calls(
+        self,
+        messages: list[dict[str, Any]],
+        history: list[BaseMessage],
+        token_usage_history: list[BaseMessage],
+        tool_calls: list[dict[str, Any]],
+        step: int,
+    ) -> dict[str, Any] | None:
+        for call in tool_calls:
+            tool_name = call["name"]
+            call_args = call.get("args", {})
+            self._logger.info(
+                "Dispatching tool call | step=%s | tool=%s | args=%s",
+                step + 1,
+                tool_name,
+                json.dumps(call_args, ensure_ascii=False),
+            )
+            result = await self.tools.dispatch_tool(tool_name, call_args)
+            result = compress_tool_result(tool_name, result)
+
+            self._logger.info(
+                "Tool result | step=%s | tool=%s | result=%s",
+                step + 1,
+                tool_name,
+                result,
+            )
+            history.append(ToolMessage(content=result, tool_call_id=call["id"], name=tool_name))
+
+            if self._is_final_answer_tool_call(call_args):
+                final_content = self._build_property_answer_from_tool_result(result)
+                history.append(AIMessage(content=final_content))
+                response = self._build_chat_response(
+                    history=history,
+                    message=final_content,
+                    token_usage_history=token_usage_history,
                 )
-                response = {
-                    "message": formatted_content,
-                    "steps": self._serialize_steps(history),
-                    "compressed_steps": self._serialize_steps(history, compressed=True),
-                    "token_usage": token_usage,
-                }
-                self._logger.info("Agent completed with direct LLM response at step %s", step + 1)
+                self._logger.info(
+                    "Agent completed with final_answer short-circuit | step=%s | tool=%s",
+                    step + 1,
+                    tool_name,
+                )
                 self._log_conversation(messages, response)
                 return response
+        return None
 
-            for call in ai_message.tool_calls:
-                self._logger.info(
-                    "Dispatching tool call | step=%s | tool=%s | args=%s",
-                    step + 1,
-                    call["name"],
-                    json.dumps(call["args"], ensure_ascii=False),
-                )
-                call_args = call.get("args", {})
-                result = await self.tools.dispatch_tool(call["name"], call_args)
-
-                tool_name = call["name"]
-                result = compress_tool_result(tool_name, result)
-
-                self._logger.info(
-                    "Tool result | step=%s | tool=%s | result=%s",
-                    step + 1,
-                    call["name"],
-                    result,
-                )
-                history.append(ToolMessage(content=result, tool_call_id=call["id"], name=call["name"]))
-
-                if self._is_final_answer_tool_call(call_args):
-                    final_content = self._build_property_answer_from_tool_result(result)
-                    history.append(AIMessage(content=final_content))
-                    token_usage = analyze_token_usage(token_usage_history)
-                    usage_insights = token_usage.pop("analysis", {})
-                    self._logger.info(
-                        "Token usage insights | llm_calls=%s | tool_call_steps=%s | final_response_steps=%s | avg_tokens_per_call=%s",
-                        usage_insights.get("llm_calls", 0),
-                        usage_insights.get("tool_call_steps", 0),
-                        usage_insights.get("final_response_steps", 0),
-                        usage_insights.get("avg_tokens_per_call", 0),
-                    )
-                    response = {
-                        "message": final_content,
-                        "steps": self._serialize_steps(history),
-                        "compressed_steps": self._serialize_steps(history, compressed=True),
-                        "token_usage": token_usage,
-                    }
-                    self._logger.info(
-                        "Agent completed with final_answer short-circuit | step=%s | tool=%s",
-                        step + 1,
-                        call["name"],
-                    )
-                    self._log_conversation(messages, response)
-                    return response
-
-        self._logger.error("Agent hit max_steps=%s without direct response", max_steps)
-        error_response = {"error": "Agent hit max_steps without producing a direct response."}
-        self._log_conversation(messages, error_response)
-        return error_response
+    def _build_chat_response(
+        self,
+        history: list[BaseMessage],
+        message: str,
+        token_usage_history: list[BaseMessage],
+    ) -> dict[str, Any]:
+        token_usage = analyze_token_usage(token_usage_history)
+        usage_insights = token_usage.pop("analysis", {})
+        self._logger.info(
+            "Token usage insights | llm_calls=%s | tool_call_steps=%s | final_response_steps=%s | avg_tokens_per_call=%s",
+            usage_insights.get("llm_calls", 0),
+            usage_insights.get("tool_call_steps", 0),
+            usage_insights.get("final_response_steps", 0),
+            usage_insights.get("avg_tokens_per_call", 0),
+        )
+        return {
+            "message": message,
+            "steps": self._serialize_steps(history),
+            "compressed_steps": self._serialize_steps(history, compressed=True),
+            "token_usage": token_usage,
+        }
 
     @staticmethod
     def _is_final_answer_tool_call(args: dict[str, Any]) -> bool:
