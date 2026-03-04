@@ -213,7 +213,7 @@ class AgentRuntime(BaseAgentRuntime):
         selected_skills = await self._select_skills_for_request(messages, tiny_agent=tiny_agent)
         self._logger.info("skill_select result | selected_skills=%s", selected_skills)
 
-        landmark_memories, effective_skills = await self._resolve_landmark_memories(
+        landmark_memory_entries, effective_skills = await self._resolve_landmark_memories(
             messages=messages,
             selected_skills=selected_skills,
             tiny_agent=tiny_agent,
@@ -237,7 +237,8 @@ class AgentRuntime(BaseAgentRuntime):
                 allowed_tools=allowed_tools,
             )
 
-        history: list[BaseMessage] = [self._system_message(selected_skills=effective_skills, landmark_memories=landmark_memories)]
+        history: list[BaseMessage] = [self._system_message(selected_skills=effective_skills)]
+        history.extend(landmark_memory_entries)
         history.extend(self._convert_messages(messages))
         return llm, structured_llm, history
 
@@ -391,15 +392,7 @@ class AgentRuntime(BaseAgentRuntime):
     def _system_message(
         self,
         selected_skills: list[str] | None = None,
-        landmark_memories: list[dict[str, str]] | None = None,
     ) -> SystemMessage:
-        memory_block = ""
-        if landmark_memories:
-            memory_lines = ["地标记忆（LANDMARK MEMORY）"]
-            for item in landmark_memories:
-                memory_lines.append(f"- 用户提及地标：{item.get('name', '')} | 对应地标ID：{item.get('id', '')}")
-            memory_lines.append("- 如果涉及地标相关查询，优先复用上述地标ID，避免重复查询。")
-            memory_block = "\n".join(memory_lines) + "\n"
         return SystemMessage(
             content=(
                 "角色（ROLE）\n"
@@ -410,7 +403,6 @@ class AgentRuntime(BaseAgentRuntime):
                 "- 房源ID全局唯一，相同的房源ID一定对应同一套房子，即使列在不同的平台上。\n"
                 "- 当用户以个数（“两套”、“三个” 等）或模糊指向请求时（“这套”，“那个” 等），如果事实存在的房源数目与请求不符合，按两者中更少的数目处理。"
                 "  可随机选择，不需要向用户确认\n\n"
-                f"{memory_block}"
                 "核心目标（CORE GOAL）\n"
                 "- 在需要时使用工具，帮助用户搜索、对比房源，并执行租房/退租/下架等操作。\n\n"
                 "工具使用规则（TOOL USAGE RULE）\n"
@@ -455,7 +447,7 @@ class AgentRuntime(BaseAgentRuntime):
         messages: list[dict[str, Any]],
         selected_skills: list[str] | None,
         tiny_agent: TinyAgent,
-    ) -> tuple[list[dict[str, str]], list[str]]:
+    ) -> tuple[list[BaseMessage], list[str]]:
         selected = list(selected_skills or [])
         if "landmark_search" not in selected:
             return [], selected
@@ -481,7 +473,7 @@ class AgentRuntime(BaseAgentRuntime):
             if not unique_names:
                 return [], filtered_skills
 
-            memories: list[dict[str, str]] = []
+            memory_entries: list[BaseMessage] = []
             for landmark_name in unique_names:
                 raw_result = await self.tools.dispatch_tool("search_landmarks", {"name": landmark_name})
                 parsed = json.loads(raw_result)
@@ -495,11 +487,23 @@ class AgentRuntime(BaseAgentRuntime):
                 if not isinstance(resolved_name, str) or not resolved_name:
                     resolved_name = landmark_name
 
-                memory = {"name": resolved_name, "id": landmark_id}
-                memories.append(memory)
+                tool_call_id = f"landmark_memory_{landmark_id}"
+                tool_call = {
+                    "id": tool_call_id,
+                    "name": "search_landmarks",
+                    "args": {"name": resolved_name},
+                }
+                memory_entries.append(AIMessage(content="", tool_calls=[tool_call]))
+                memory_entries.append(
+                    ToolMessage(
+                        content=json.dumps({"name": resolved_name, "id": landmark_id}, ensure_ascii=False),
+                        tool_call_id=tool_call_id,
+                        name="search_landmarks",
+                    )
+                )
 
-            self._logger.info("landmark memories resolved | %s", json.dumps(memories, ensure_ascii=False))
-            return memories, filtered_skills
+            self._logger.info("landmark memories resolved | entries=%s", len(memory_entries))
+            return memory_entries, filtered_skills
         except Exception:
             self._logger.exception("landmark memory resolve failed")
             return [], filtered_skills
