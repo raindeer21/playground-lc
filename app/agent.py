@@ -42,6 +42,10 @@ class SelectedSkills(BaseModel):
     selected_skills: list[str] = Field(default_factory=list, description="Selected skill IDs")
 
 
+class LandmarkLookupRequest(BaseModel):
+    names: list[str] = Field(default_factory=list, description="Landmark names to resolve")
+
+
 StructuredOutputT = TypeVar("StructuredOutputT", bound=BaseModel)
 LLMBuilder = Callable[[str], ChatOpenAI]
 TinyAgent = Callable[[str, type[StructuredOutputT]], Awaitable[StructuredOutputT]]
@@ -208,9 +212,15 @@ class AgentRuntime(BaseAgentRuntime):
 
         selected_skills = await self._select_skills_for_request(messages, tiny_agent=tiny_agent)
         self._logger.info("skill_select result | selected_skills=%s", selected_skills)
-        allowed_tools = self.skill_store.tool_whitelist_for(selected_skills)
 
-        if model is None and session_id is None and base_url is None and not selected_skills:
+        landmark_memories, effective_skills = await self._resolve_landmark_memories(
+            messages=messages,
+            selected_skills=selected_skills,
+            tiny_agent=tiny_agent,
+        )
+        allowed_tools = self.skill_store.tool_whitelist_for(effective_skills)
+
+        if model is None and session_id is None and base_url is None and not effective_skills:
             llm = self.llm
             structured_llm = getattr(self, "structured_llm", None)
         else:
@@ -227,7 +237,7 @@ class AgentRuntime(BaseAgentRuntime):
                 allowed_tools=allowed_tools,
             )
 
-        history: list[BaseMessage] = [self._system_message(selected_skills=selected_skills)]
+        history: list[BaseMessage] = [self._system_message(selected_skills=effective_skills, landmark_memories=landmark_memories)]
         history.extend(self._convert_messages(messages))
         return llm, structured_llm, history
 
@@ -378,9 +388,18 @@ class AgentRuntime(BaseAgentRuntime):
         )
         return payload.model_dump_json(ensure_ascii=False)
 
-    def _system_message(self, selected_skills: list[str] | None = None) -> SystemMessage:
-        headers = self.skill_store.headers()
-        selected = selected_skills or []
+    def _system_message(
+        self,
+        selected_skills: list[str] | None = None,
+        landmark_memories: list[dict[str, str]] | None = None,
+    ) -> SystemMessage:
+        memory_block = ""
+        if landmark_memories:
+            memory_lines = ["地标记忆（LANDMARK MEMORY）"]
+            for item in landmark_memories:
+                memory_lines.append(f"- 用户提及地标：{item.get('name', '')} | 对应地标ID：{item.get('id', '')}")
+            memory_lines.append("- 如果涉及地标相关查询，优先复用上述地标ID，避免重复查询。")
+            memory_block = "\n".join(memory_lines) + "\n"
         return SystemMessage(
             content=(
                 "角色（ROLE）\n"
@@ -391,6 +410,7 @@ class AgentRuntime(BaseAgentRuntime):
                 "- 房源ID全局唯一，相同的房源ID一定对应同一套房子，即使列在不同的平台上。\n"
                 "- 当用户以个数（“两套”、“三个” 等）或模糊指向请求时（“这套”，“那个” 等），如果事实存在的房源数目与请求不符合，按两者中更少的数目处理。"
                 "  可随机选择，不需要向用户确认\n\n"
+                f"{memory_block}"
                 "核心目标（CORE GOAL）\n"
                 "- 在需要时使用工具，帮助用户搜索、对比房源，并执行租房/退租/下架等操作。\n\n"
                 "工具使用规则（TOOL USAGE RULE）\n"
@@ -428,6 +448,61 @@ class AgentRuntime(BaseAgentRuntime):
                 "- 最终推荐房源不超过 5 个。\n"
             )
         )
+
+
+    async def _resolve_landmark_memories(
+        self,
+        messages: list[dict[str, Any]],
+        selected_skills: list[str] | None,
+        tiny_agent: TinyAgent,
+    ) -> tuple[list[dict[str, str]], list[str]]:
+        selected = list(selected_skills or [])
+        if "landmark_search" not in selected:
+            return [], selected
+
+        filtered_skills = [skill for skill in selected if skill != "landmark_search"]
+        user_text = self._latest_user_text(messages)
+        if not user_text:
+            return [], filtered_skills
+
+        prompt = (
+            "你是一个地标名称提取器。根据用户请求提取所有需要查询的地标名称。"
+            "仅返回 JSON，字段为 names（字符串数组）。若无法确定，返回空数组。"
+            f"\nrequest={user_text}"
+        )
+
+        try:
+            extracted = await tiny_agent(prompt, LandmarkLookupRequest)
+            candidate_names = [name.strip() for name in extracted.names if isinstance(name, str) and name.strip()]
+            unique_names: list[str] = []
+            for candidate in candidate_names:
+                if candidate not in unique_names:
+                    unique_names.append(candidate)
+            if not unique_names:
+                return [], filtered_skills
+
+            memories: list[dict[str, str]] = []
+            for landmark_name in unique_names:
+                raw_result = await self.tools.dispatch_tool("search_landmarks", {"name": landmark_name})
+                parsed = json.loads(raw_result)
+                if not isinstance(parsed, dict):
+                    continue
+
+                landmark_id = parsed.get("id")
+                resolved_name = parsed.get("name", landmark_name)
+                if not isinstance(landmark_id, str) or not landmark_id:
+                    continue
+                if not isinstance(resolved_name, str) or not resolved_name:
+                    resolved_name = landmark_name
+
+                memory = {"name": resolved_name, "id": landmark_id}
+                memories.append(memory)
+
+            self._logger.info("landmark memories resolved | %s", json.dumps(memories, ensure_ascii=False))
+            return memories, filtered_skills
+        except Exception:
+            self._logger.exception("landmark memory resolve failed")
+            return [], filtered_skills
 
     async def _select_skills_for_request(
         self,
