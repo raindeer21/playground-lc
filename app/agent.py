@@ -43,6 +43,7 @@ class SelectedSkills(BaseModel):
 
 
 StructuredOutputT = TypeVar("StructuredOutputT", bound=BaseModel)
+LLMBuilder = Callable[[str], ChatOpenAI]
 TinyAgent = Callable[[str, type[StructuredOutputT]], Awaitable[StructuredOutputT]]
 
 
@@ -93,6 +94,36 @@ class AgentRuntime(BaseAgentRuntime):
             temperature=0,
         ).with_structured_output(PropertyAnswer, include_raw=True)
 
+
+    def _build_llm_builder(self, session_id: str | None = None, base_url: str | None = None) -> LLMBuilder:
+        client_headers = {"Session-ID": session_id} if session_id else None
+
+        def builder(model: str) -> ChatOpenAI:
+            return ChatOpenAI(
+                model=model,
+                http_client=httpx.Client(trust_env=False, headers=client_headers),
+                base_url=base_url or self.default_base_url,
+                api_key="sk-1234",
+                temperature=0,
+            )
+
+        return builder
+
+    def _make_tiny_agent(
+        self,
+        llm_builder: LLMBuilder,
+        model: str,
+        callbacks: list[Any] | None = None,
+    ) -> TinyAgent:
+        async def tiny_agent(prompt: str, output_class: type[StructuredOutputT]) -> StructuredOutputT:
+            tiny_llm = llm_builder(model).with_structured_output(output_class)
+            config: dict[str, Any] | None = None
+            if callbacks:
+                config = {"callbacks": callbacks}
+            return tiny_llm.invoke([HumanMessage(content=prompt)], config=config)
+
+        return tiny_agent
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -122,20 +153,12 @@ class AgentRuntime(BaseAgentRuntime):
         self._logger.info("Agent chat started | max_steps=%s | message_count=%s", max_steps, len(messages))
         self._logger.info("Incoming messages payload: %s", json.dumps(messages, ensure_ascii=False))
         target_model = model or self.default_model
-
-        async def tiny_agent(prompt: str, output_class: type[StructuredOutputT]) -> StructuredOutputT:
-            client_headers = {"Session-ID": session_id} if session_id else None
-            tiny_llm = ChatOpenAI(
-                model=target_model,
-                http_client=httpx.Client(trust_env=False, headers=client_headers),
-                base_url=base_url or self.default_base_url,
-                api_key="sk-1234",
-                temperature=0,
-            ).with_structured_output(output_class)
-            return tiny_llm.invoke(
-                [HumanMessage(content=prompt)],
-                config={"callbacks": [langfuse_handler]},
-            )
+        llm_builder = self._build_llm_builder(session_id=session_id, base_url=base_url)
+        tiny_agent = self._make_tiny_agent(
+            llm_builder=llm_builder,
+            model=target_model,
+            callbacks=[langfuse_handler],
+        )
 
         selected_skills = await self._select_skills_for_request(messages, tiny_agent=tiny_agent)
         self._logger.info("skill_select result | selected_skills=%s", selected_skills)
@@ -402,14 +425,11 @@ class AgentRuntime(BaseAgentRuntime):
         prompt: str,
         output_class: type[StructuredOutputT],
     ) -> StructuredOutputT:
-        tiny_llm = ChatOpenAI(
+        tiny_agent = self._make_tiny_agent(
+            llm_builder=self._build_llm_builder(),
             model=self.default_model,
-            http_client=httpx.Client(trust_env=False),
-            base_url=self.default_base_url,
-            api_key="sk-1234",
-            temperature=0,
-        ).with_structured_output(output_class)
-        return tiny_llm.invoke([HumanMessage(content=prompt)])
+        )
+        return await tiny_agent(prompt, output_class)
 
     @staticmethod
     def _latest_user_text(messages: list[dict[str, Any]]) -> str:
