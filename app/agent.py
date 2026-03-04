@@ -518,22 +518,22 @@ class AgentRuntime(BaseAgentRuntime):
             self._logger.info("skill_select skipped | reason=no_headers")
             return []
 
-        user_text = self._latest_user_text(messages)
-        if not user_text:
-            self._logger.info("skill_select skipped | reason=no_user_text")
+        request_text = self._messages_for_skill_selection(messages)
+        if not request_text:
+            self._logger.info("skill_select skipped | reason=no_human_or_ai_text")
             return []
 
         prompt = (
             """你是skill选择器,请根据用户请求选择相关的skill，优先少选。\n"""
             f"skills={json.dumps(headers, ensure_ascii=False)}\n"
-            f"request={user_text}"
+            f"request={request_text}"
         )
 
         self._logger.info(
             "skill_select input | %s",
             json.dumps(
                 {
-                    "request": user_text,
+                    "request": request_text,
                     "skill_count": len(headers),
                     "skill_ids": [item.get("skill_id") for item in headers],
                 },
@@ -580,6 +580,25 @@ class AgentRuntime(BaseAgentRuntime):
             if message.get("role") == "user":
                 return str(message.get("content", ""))
         return ""
+
+    @staticmethod
+    def _messages_for_skill_selection(messages: list[dict[str, Any]]) -> str:
+        selected_messages: list[str] = []
+        for message in messages:
+            role = message.get("role")
+            if role not in {"user", "assistant"}:
+                continue
+
+            content = message.get("content", "")
+            if isinstance(content, str):
+                normalized_content = content.strip()
+            else:
+                normalized_content = str(content).strip()
+
+            if normalized_content:
+                selected_messages.append(normalized_content)
+
+        return "\n".join(selected_messages)
 
     @staticmethod
     def _parse_selected_skill_ids(content: str, headers: list[dict[str, str]]) -> list[str]:

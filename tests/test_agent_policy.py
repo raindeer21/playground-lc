@@ -387,6 +387,45 @@ def test_select_skills_uses_tiny_agent_abstraction() -> None:
     assert captured["output_class"].__name__ == "SelectedSkills"
 
 
+def test_select_skills_prompt_uses_human_and_ai_messages_only() -> None:
+    import logging
+
+    runtime = AgentRuntime.__new__(AgentRuntime)
+
+    class _DummySkillStore:
+        def headers(self):
+            return [
+                {"skill_id": "property_search", "name": "search", "description": ""},
+            ]
+
+    captured: dict[str, object] = {}
+
+    async def _fake_tiny_agent(prompt, output_class):
+        captured["prompt"] = prompt
+        return output_class(selected_skills=["property_search"])
+
+    runtime.skill_store = _DummySkillStore()
+    runtime._logger = logging.getLogger(__name__)
+
+    asyncio.run(
+        runtime._select_skills_for_request(
+            [
+                {"role": "system", "content": "system note"},
+                {"role": "user", "content": "我想租房"},
+                {"role": "assistant", "content": "好的，请说下预算"},
+                {"role": "tool", "content": "{\"name\": \"search\"}"},
+                {"role": "user", "content": "预算 8000"},
+            ],
+            tiny_agent=_fake_tiny_agent,
+        )
+    )
+
+    prompt = str(captured["prompt"])
+    assert "request=我想租房\n好的，请说下预算\n预算 8000" in prompt
+    assert "system note" not in prompt
+    assert '{"name": "search"}' not in prompt
+
+
 def test_run_tiny_agent_returns_structured_output() -> None:
     import app.agent as agent_module
 
