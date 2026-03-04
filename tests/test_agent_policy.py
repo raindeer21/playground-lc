@@ -491,3 +491,40 @@ def test_chat_passes_base_url_and_session_id_into_tiny_agent_runner() -> None:
     assert chat_kwargs["base_url"] == "http://custom.local/v1"
     assert chat_kwargs["model"] == "qwen3-32b"
     assert captured["invoke_config"] == {"callbacks": [agent_module.langfuse_handler]}
+
+
+def test_resolve_landmark_memories_returns_tool_result_entries() -> None:
+    from langchain_core.messages import AIMessage, ToolMessage
+    import logging
+
+    runtime = AgentRuntime.__new__(AgentRuntime)
+
+    class _DummyTools:
+        async def dispatch_tool(self, _name, _args):
+            return '{"name": "西二旗站", "id": "LM_1"}'
+
+    class _LandmarkOutput:
+        def __init__(self, names):
+            self.names = names
+
+    async def _fake_tiny_agent(_prompt, _output_class):
+        return _LandmarkOutput(names=["西二旗", "西二旗"])
+
+    runtime.tools = _DummyTools()
+    runtime._logger = logging.getLogger(__name__)
+
+    entries, filtered_skills = asyncio.run(
+        runtime._resolve_landmark_memories(
+            messages=[{"role": "user", "content": "帮我找西二旗附近"}],
+            selected_skills=["property_search", "landmark_search"],
+            tiny_agent=_fake_tiny_agent,
+        )
+    )
+
+    assert filtered_skills == ["property_search"]
+    assert len(entries) == 2
+    assert isinstance(entries[0], AIMessage)
+    assert isinstance(entries[1], ToolMessage)
+    assert entries[0].tool_calls[0]["name"] == "search_landmarks"
+    assert entries[1].name == "search_landmarks"
+    assert entries[1].content == '{"name": "西二旗站", "id": "LM_1"}'
