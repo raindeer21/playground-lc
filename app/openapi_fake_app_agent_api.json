@@ -155,6 +155,7 @@
                 ]
             }
         },
+
         "/api/houses/nearby_landmarks": {
             "get": {
                 "operationId": "get_nearby_landmarks",

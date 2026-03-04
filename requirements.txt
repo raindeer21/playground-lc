@@ -7,3 +7,7 @@ fastmcp>=3.0.0
 pytest>=8.0.0
 pydantic
 langchain-core
+
+
+langfuse
+httpx

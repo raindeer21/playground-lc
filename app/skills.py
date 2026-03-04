@@ -65,7 +65,7 @@ class SkillStore:
         return self._skills.values()
 
     def tool_whitelist_for(self, skill_ids: list[str]) -> set[str] | None:
-        if not skill_ids:
+        if skill_ids is None:
             return None
 
         tool_names: set[str] = set()
@@ -75,7 +75,7 @@ class SkillStore:
                 continue
             tool_names.update(skill.tool_whitelist)
 
-        return tool_names or None
+        return tool_names
 
 
 def _extract_frontmatter(text: str) -> dict[str, str]:
