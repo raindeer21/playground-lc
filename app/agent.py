@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
+import langfuse
+from langfuse._client.propagation import propagate_attributes
+from langfuse.langchain import CallbackHandler
 from pydantic import BaseModel, Field
 
 import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
+from sqlalchemy.util import await_only
 
 from app.runtime_base import BaseAgentRuntime
 from app.runtime_helpers import analyze_token_usage, compress_tool_result, extract_token_usage, trim_ai_message_for_history
@@ -18,6 +23,14 @@ from app.skills import SkillStore
 from app.tools import AgentTools
 import asyncio
 
+existing = os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or ""
+extra = "127.0.0.1,localhost"
+
+combined = ",".join([x for x in [existing, extra] if x]).replace(",,", ",")
+os.environ["NO_PROXY"] = combined
+os.environ["no_proxy"] = combined
+langfuse_handler = CallbackHandler()
+langfuse_client = langfuse.get_client()
 
 
 class PropertyAnswer(BaseModel):
@@ -27,7 +40,6 @@ class PropertyAnswer(BaseModel):
 
 class SelectedSkills(BaseModel):
     selected_skills: list[str] = Field(default_factory=list, description="Selected skill IDs")
-    raw_response: str = Field(default="", description="Raw model response fallback text")
 
 class AgentRuntime(BaseAgentRuntime):
     def __init__(
@@ -65,7 +77,8 @@ class AgentRuntime(BaseAgentRuntime):
         ).bind_tools(await self.tools.langchain_tools(allowed_tools=allowed_tools))
 
 
-    async def _build_structured_llm(self, model: str, session_id: str | None = None, base_url: str | None = None):
+    async def _build_structured_llm(self, model: str, session_id: str | None = None,
+                                    base_url: str | None = None, allowed_tools: set[str] | None = None,):
         client_headers = {"Session-ID": session_id} if session_id else None
         return ChatOpenAI(
             model=model,
@@ -73,9 +86,27 @@ class AgentRuntime(BaseAgentRuntime):
             base_url=base_url or self.default_base_url,
             api_key="sk-1234",
             temperature=0,
-        ).with_structured_output(PropertyAnswer)
+        ).with_structured_output(PropertyAnswer, include_raw=True)
 
     async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        max_steps: int = 12,
+        model: str | None = None,
+        session_id: str | None = None,
+        base_url: str | None = None,
+    ) -> dict[str, Any]:
+        with langfuse_client.start_as_current_observation(as_type="span", name="langchain-call") as span:
+            # Propagate session_id to all observations
+            span.update(input=messages[-1]["content"])
+            langfuse_client.update_current_trace(input=messages[-1]["content"])
+            with propagate_attributes(session_id=session_id):
+                response = await self._chat(messages, max_steps, model=model, session_id=session_id, base_url=base_url)
+                span.update(output=response["message"])
+                langfuse_client.update_current_trace(output=response["message"])
+                return response
+
+    async def _chat(
         self,
         messages: list[dict[str, Any]],
         max_steps: int = 12,
@@ -101,7 +132,7 @@ class AgentRuntime(BaseAgentRuntime):
                 base_url=base_url,
                 allowed_tools=allowed_tools,
             )
-            structured_llm = await self._build_structured_llm(model=target_model, session_id=session_id, base_url=base_url)
+            structured_llm = await self._build_structured_llm(model=target_model, session_id=session_id, base_url=base_url, allowed_tools=allowed_tools)
 
         history: list[BaseMessage] = [self._system_message(selected_skills=selected_skills)]
         # self._logger.info("System Prompt: %s", self._system_message())
@@ -111,7 +142,8 @@ class AgentRuntime(BaseAgentRuntime):
         for step in range(max_steps):
             self._logger.info("Invoking LLM at step %s", step + 1)
             self._logger.info(f"History | {history}")
-            raw_ai_message: AIMessage = llm.invoke(history)
+            raw_ai_message = llm.invoke(history,
+                                        config={"callbacks": [langfuse_handler]})
             token_usage_history.append(raw_ai_message)
             ai_message = trim_ai_message_for_history(raw_ai_message)
             history.append(ai_message)
@@ -247,7 +279,11 @@ class AgentRuntime(BaseAgentRuntime):
                 "角色（ROLE）\n"
                 "- 你是租房方向的专业房产中介，专注于：找房 / 对比 / 租房 / 退租 / 下架。\n"
                 "- 你是专业的工作人员，需要简要且直接地回答问题，不要长篇大论，直接说结论（如：没有房源，有以下房源），不要给出额外建议。\n"
-                "- 当前年份：2026。\n\n"
+                "事实规则（GROUND TRUTH）\n"
+                "- 当前年份：2026。"
+                "- 房源ID全局唯一，相同的房源ID一定对应同一套房子，即使列在不同的平台上。\n"
+                "- 当用户以个数（“两套”、“三个” 等）或模糊指向请求时（“这套”，“那个” 等），如果事实存在的房源数目与请求不符合，按两者中更少的数目处理。"
+                "  可随机选择，不需要向用户确认\n\n"
                 "核心目标（CORE GOAL）\n"
                 "- 在需要时使用工具，帮助用户搜索、对比房源，并执行租房/退租/下架等操作。\n\n"
                 "工具使用规则（TOOL USAGE RULE）\n"
@@ -259,31 +295,34 @@ class AgentRuntime(BaseAgentRuntime):
                 "1）搜索意图（SEARCH：用户说找/推荐/看看/查询房源等）\n"
                 "- 提取明确约束：\n"
                 "  - 预算、区域/商圈、几居、整租/合租、通勤需求、设施/配套、入住时间、其他硬性要求。\n"
+                "  - search_house 调用仅包含**必须的要求**，“如果可以” “有的话更好” “最好有” 等可选条件不能包括。\n"
                 "- 若约束足够清晰 -> 立即搜索房源。\n"
-                "- 对候选房源进行核验与对比维度：\n"
-                "  - 通勤、性价比、配套/设施、风险/缺点。\n"
+                # "- 对候选房源进行核验与对比维度：\n"
+                # "  - 通勤、性价比、配套/设施、风险/缺点。\n"
                 "2）状态变更意图（STATE-CHANGING）：租房 / 退租 / 下架\n"
                 "- 若用户明确要求“租”或“退租/解除租约”或“下架/停止出租”等 -> 立即执行对应操作。\n"
-                "- 不需要再次向用户确认。\n"
-                "- 覆盖表达：租房/帮我租/确认租，退租/解除租约，下架/停止出租/把房源下架。\n\n"
-                "3）用户认可触发（ENDORSEMENT：隐式确认）\n"
-                "- 若用户明确认可某个具体房源 -> 视为已同意租下。\n"
-                "- 示例：“就这个了”“这个不错”“这个更好”。\n"
-                "- 行为：立即对该房源执行“租房”操作（无需确认）。\n\n"
-                "平台规则（PLATFORM RULE）\n"
-                "- 若用户未指定平台 -> 按顺序搜索平台，仅未搜索到结果时尝试下一平台：链家/安居客/58同城。\n\n"
+                "- '可以租吗' '我想租' -> 仅检查房源是否可用，除非明确要求执行操作。\n\n"
+                # "3）用户认可触发（ENDORSEMENT：隐式确认）\n"
+                # "- 若用户明确认可某个具体房源 -> 视为已同意租下。\n"
+                # "- 示例：“就这个了”“这个不错”“这个更好”。\n"
+                # "- 行为：立即对该房源执行“租房”操作（无需确认）。\n\n"
+                # "平台规则（PLATFORM RULE）\n"
+                # "- 若用户未指定平台 -> 按顺序搜索平台，仅未搜索到结果时尝试下一平台：链家/安居客/58同城。\n\n"
                 "输出格式要求（OUTPUT FORMAT REQUIREMENT）\n"
                 "非常重要（VERY IMPORTANT）：\n"
-                "- 最终输出必须是 JSON：{\"message\": string, \"houses\": string[]}。\n"
-                "- 若没有房源，houses 必须为空数组，message 写结论。\n"
-                "- 严禁输出 JSON 以外的多余文字。\n\n"
+                "- 你只能有两种输出：消息输出和工具调用输出"
+                "- 消息输出：必须是以下 JSON 格式：{\"message\": string, \"houses\": string[]}。"
+                " houses 填写房源 ID（如：HF_36），message 填写处理结论和结果消息，必须同时包含这两个字段。"
+                " 若没有房源，houses 必须为空数组，message 写结论。"
+                " 严禁输出 message 与 houses 以外的字段。严禁将工具调用输出到消息输出中，严禁输出 JSON 以外的多余文字，仅输出纯 JSON，不要使用 markdown 代码块。\n"
+                "- 工具调用输出：必须使用 Tool call 形式，禁止生成到消息输出的json中。"
                 "输出质量规则（OUTPUT QUALITY RULES）\n"
                 "- 表达要简洁、可操作：给出最优选项、原因、权衡点、下一步建议。\n"
                 "- 最终推荐房源不超过 5 个。\n"
             )
         )
 
-    async def _select_skills_for_request(self, messages: list[dict[str, Any]]) -> list[str]:
+    async def _select_skills_for_request(self, messages: list[dict[str, Any]]) -> list[Any] | list[str] | None:
         headers = self.skill_store.headers()
         if not headers:
             self._logger.info("skill_select skipped | reason=no_headers")
@@ -303,8 +342,7 @@ class AgentRuntime(BaseAgentRuntime):
         ).with_structured_output(SelectedSkills)
 
         prompt = (
-            "你是skill选择器。请根据用户请求只返回JSON数组，内容是最相关skill_id；无匹配返回[]。"
-            "优先少选，最多3个。\n"
+            """你是skill选择器,请根据用户请求选择相关的skill，优先少选。\n"""
             f"skills={json.dumps(headers, ensure_ascii=False)}\n"
             f"request={user_text}"
         )
@@ -322,18 +360,18 @@ class AgentRuntime(BaseAgentRuntime):
         )
 
         try:
-            response: SelectedSkills = selector_llm.invoke([HumanMessage(content=prompt)])
+            response: SelectedSkills = selector_llm.invoke([HumanMessage(content=prompt)],
+                                                           config={"callbacks": [langfuse_handler]})
             selected_skills = self._parse_selected_skill_ids(response.model_dump_json(), headers)
-            self._logger.info(
-                "skill_select token_usage | %s",
-                json.dumps(extract_token_usage(response), ensure_ascii=False),
-            )
+            # self._logger.info(
+            #     "skill_select token_usage | %s",
+            #     json.dumps(extract_token_usage(response), ensure_ascii=False),
+            # )
             self._logger.info(
                 "skill_select output | %s",
                 json.dumps(
                     {
                         "selected_skills": selected_skills,
-                        "raw_response": response.raw_response,
                     },
                     ensure_ascii=False,
                 ),
@@ -341,7 +379,7 @@ class AgentRuntime(BaseAgentRuntime):
             return selected_skills
         except Exception:
             self._logger.exception("skill_select failed")
-            return []
+            return None
 
     @staticmethod
     def _latest_user_text(messages: list[dict[str, Any]]) -> str:
@@ -361,7 +399,7 @@ class AgentRuntime(BaseAgentRuntime):
             matches = list(re.finditer(r"\[[\s\S]*?\]", text))
             if not matches:
                 return []
-            parsed = None
+            parsed: Optional[SelectedSkills] = None
             for match in reversed(matches):
                 try:
                     parsed = json.loads(match.group(0))
@@ -414,23 +452,24 @@ class AgentRuntime(BaseAgentRuntime):
                 return message
             return json.dumps({"message": message, "houses": houses}, ensure_ascii=False)
 
-        if structured_llm is not None:
-            try:
-                normalized: PropertyAnswer = structured_llm.invoke(
-                    "请将以下租房助手回复规范化为结构化输出。"
-                    "必须返回 message 和 houses 字段，houses 仅保留房源ID字符串列表。"
-                    "仅输出纯 JSON，不要使用 markdown 代码块。"
-                    f"原始回复：{text}"
-                )
-                if normalized.houses:
-                    return json.dumps(
-                        {"message": normalized.message, "houses": normalized.houses},
-                        ensure_ascii=False,
-                    )
-                return normalized.message
-            except Exception:
-                self._logger.exception("Structured output normalization failed")
+        # if structured_llm is not None:
+        #     try:
+        #         normalized: PropertyAnswer = structured_llm.invoke(
+        #             "请将以下租房助手回复规范化为结构化输出。"
+        #             "必须返回 message 和 houses 字段，houses 仅保留房源ID字符串列表。"
+        #             "仅输出纯 JSON，不要使用 markdown 代码块。"
+        #             f"原始回复：{text}"
+        #         )
+        #         if normalized.houses:
+        #             return json.dumps(
+        #                 {"message": normalized.message, "houses": normalized.houses},
+        #                 ensure_ascii=False,
+        #             )
+        #         return normalized.message
+        #     except Exception:
+        #         self._logger.exception("Structured output normalization failed")
 
+        self._logger.exception(f"STRUCTURED OUTPUT VIOLATION | {cleaned_text}")
         return cleaned_text
 
     @staticmethod

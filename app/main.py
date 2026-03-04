@@ -95,7 +95,7 @@ _cumulative_token_stats: dict[str, int] = {
 
 def _trim_old_tool_history(
     history: list[dict[str, Any]],
-    max_recent_user_requests: int = 2,
+    max_recent_user_requests: int = 1,
 ) -> list[dict[str, Any]]:
     if max_recent_user_requests <= 0:
         return [
@@ -117,7 +117,10 @@ def _trim_old_tool_history(
             trimmed.append(item)
             continue
 
-        is_tool_entry = role == "tool" or (role == "assistant" and item.get("tool_calls"))
+        if role == "assistant":
+            item["tool_calls"] = []
+
+        is_tool_entry = role == "tool"
         if is_tool_entry and current_user_index < keep_from_user_index:
             continue
         trimmed.append(item)
@@ -230,13 +233,14 @@ def _build_history_entries(result: dict[str, Any]) -> list[dict[str, Any]]:
     for step in result.get("compressed_steps", []):
         step_type = step.get("type")
         if step_type == "tool_calls":
-            entries.append(
-                {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": step.get("tool_calls", []),
-                }
-            )
+            # entries.append(
+            #     {
+            #         "role": "assistant",
+            #         "content": "\n\n",
+            #         "tool_calls": step.get("tool_calls", []),
+            #     }
+            # )
+            continue
         elif step_type == "tool_result":
             entries.append(
                 {

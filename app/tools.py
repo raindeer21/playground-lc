@@ -97,6 +97,12 @@ def _require_skill_store() -> SkillStore:
     return _skill_store
 
 
+# @mcp.tool(
+#     name="get_skills",
+#     description="Return full SKILL.md content for one or more skill_ids. Prefer skill_ids to fetch multiple skills in one call.",
+# )
+# def get_skills_mcp(skill_id: str | None = None, skill_ids: list[str] | None = None) -> str:
+#     return get_skills(skill_store=_require_skill_store(), skill_id=skill_id, skill_ids=skill_ids)
 def get_skills(
     skill_store: SkillStore,
     skill_id: str | None = None,
@@ -120,14 +126,14 @@ def get_skills(
     return json.dumps(payload)
 
 
-# @mcp.tool(
-#     name="get_skills",
-#     description="Return full SKILL.md content for one or more skill_ids. Prefer skill_ids to fetch multiple skills in one call.",
-# )
-# def get_skills_mcp(skill_id: str | None = None, skill_ids: list[str] | None = None) -> str:
-#     return get_skills(skill_store=_require_skill_store(), skill_id=skill_id, skill_ids=skill_ids)
-
-
+# @mcp.tool(name="web_request", description="Perform an HTTP request and return status, headers, and truncated body.")
+# def web_request_mcp(
+#     method: str = "GET",
+#     url: str = "",
+#     headers: dict[str, str] | None = None,
+#     body: str | None = None,
+# ) -> str:
+#     return web_request(method=method, url=url, headers=headers, body=body)
 def web_request(method: str, url: str, headers: dict[str, str] | None = None, body: str | None = None) -> str:
     logger.info("web_request called | method=%s | url=%s | headers=%s | body_preview=%s", method, url, headers or {}, (body or "")[:300])
     try:
@@ -146,17 +152,6 @@ def web_request(method: str, url: str, headers: dict[str, str] | None = None, bo
     except Exception as exc:  # noqa: BLE001
         logger.exception("web_request failed")
         return json.dumps({"error": str(exc)})
-
-
-# @mcp.tool(name="web_request", description="Perform an HTTP request and return status, headers, and truncated body.")
-# def web_request_mcp(
-#     method: str = "GET",
-#     url: str = "",
-#     headers: dict[str, str] | None = None,
-#     body: str | None = None,
-# ) -> str:
-#     return web_request(method=method, url=url, headers=headers, body=body)
-
 
 
 def _extract_house_ids(payload: object) -> list[str]:
@@ -205,34 +200,34 @@ def _append_house_platform(
 
 
 @mcp.tool(
-    name="get_houses_by_platform",
-    description="触发器：不需要房屋具体信息，仅搜索房源列表时优先使用该工具。"
-                "根据筛选条件分别获取三大平台（链家/安居客/58同城）的房源，并返回 {houseid, platforms} 列表。",
+    name="search_house",
+    description="根据筛选条件搜索可租房源，默认获取三大平台（链家/安居客/58同城）的所有符合条件的房源。"
+                "填写条件时请仅包含**必须的要求**，“如果可以” “有的话更好” “最好有” 等可选条件不能包括。",
 )
-def get_houses_by_platform(
-    district: Annotated[str | None, Field(description="行政区")] = None,
-    area: Annotated[str | None, Field(description="商圈，逗号分隔")] = None,
+def search_house(
+    district: Annotated[str | None, Field(description="仅支持以下北京行政区：朝阳、西城、海淀、东城、丰台、昌平、房山、通州、大兴、顺义")] = None,
+    area: Annotated[str | None, Field(description="商圈，多个可使用逗号分隔")] = None,
     min_price: Annotated[int | None, Field(description="最低月租金（元）")] = None,
     max_price: Annotated[int | None, Field(description="最高月租金（元）")] = None,
-    bedrooms: Annotated[str | None, Field(description="卧室数，逗号分隔")] = None,
-    rental_type: Annotated[str | None, Field(description="整租 或 合租")] = None,
-    decoration: Annotated[str | None, Field(description="装修，如精装/简装")] = None,
-    orientation: Annotated[str | None, Field(description="朝向")] = None,
+    bedrooms: Annotated[str | None, Field(description="卧室数，多个可使用逗号分隔。如两到三居室：2,3")] = None,
+    rental_type: Annotated[str | None, Field(description="支持：整租、合租")] = None,
+    decoration: Annotated[str | None, Field(description="装修类型：精装、简装")] = None,
+    orientation: Annotated[str | None, Field(description="朝向：朝南、南北、朝北、朝西、东西、朝东、西北")] = None,
     elevator: Annotated[str | None, Field(description="是否有电梯：true/false")] = None,
     min_area: Annotated[int | None, Field(description="最小面积（平米）")] = None,
     max_area: Annotated[int | None, Field(description="最大面积（平米）")] = None,
-    property_type: Annotated[str | None, Field(description="物业类型")] = None,
+    property_type: Annotated[str | None, Field(description="物业类型：住宅、公寓")] = None,
     subway_line: Annotated[str | None, Field(description="地铁线路")] = None,
     max_subway_dist: Annotated[int | None, Field(description="最大地铁距离（米）")] = None,
-    subway_station: Annotated[str | None, Field(description="地铁站名")] = None,
-    utilities_type: Annotated[str | None, Field(description="水电类型")] = None,
+    subway_station: Annotated[str | None, Field(description="地铁站名，使用前必须通过地标搜索获取精准名称")] = None,
+    utilities_type: Annotated[str | None, Field(description="水电类型：民水民电、商水商电")] = None,
     available_from_before: Annotated[str | None, Field(description="可入住日期上限，YYYY-MM-DD")] = None,
     commute_to_xierqi_max: Annotated[int | None, Field(description="到西二旗通勤时间上限（分钟）")] = None,
     sort_by: Annotated[str | None, Field(description="排序字段：price/area/subway")] = None,
     sort_order: Annotated[str | None, Field(description="排序顺序：asc/desc")] = None,
     page: Annotated[int | None, Field(description="页码")] = 1,
     page_size: Annotated[int, Field(description="每页数量")] = 5,
-    detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
+    # detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
     final_answer: Annotated[bool, Field(description="当该次调用是用户请求的最终结果时，请填写true，该结果会直接提供给用户。")] = False,
 ) -> str:
     params = HouseSearchInput(
@@ -259,7 +254,7 @@ def get_houses_by_platform(
         page=page,
         page_size=page_size,
     ).model_dump(exclude_none=True)
-
+    detailed = False
     with _openapi_spec_path.open("r", encoding="utf-8") as fp:
         openapi_spec = json.load(fp)
     server = openapi_spec.get("servers", [{}])[0].get("url", "")
@@ -296,17 +291,16 @@ def get_houses_by_platform(
 
 
 @mcp.tool(
-    name="get_houses_nearby",
-    description="触发器：不需要房屋具体信息，仅搜索房源列表时优先使用该工具。"
-                "以地标为圆心查附近房源，分别获取三大平台（链家/安居客/58同城）的房源，并返回 {houseid, platforms} 列表。"
-                "必须先使用search_landmarks获取精准地标名称/ID后，才能调用该接口。",
+    name="get_houses_near_landmark",
+    description="以地标为圆心，查询在指定距离内的可租房源，返回带直线距离、步行距离、步行时间。必须先使用search_landmarks获取精准地标名称/ID后，才能调用该接口。"
+                "默认会查询三大平台（链家/安居客/58同城）的符合条件的房源。",
 )
-def get_houses_nearby(
+def get_houses_near_landmark(
     landmark_id: Annotated[str, Field(description="地标ID")],
     max_distance: Annotated[int | None, Field(description="最大距离（米）")] = None,
     page: Annotated[int | None, Field(description="页码")] = 1,
     page_size: Annotated[int, Field(description="每页数量")] = 5,
-    detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
+    # detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
     final_answer: Annotated[bool, Field(description="当该次调用是用户请求的最终结果时，请填写true，该结果会直接提供给用户。")] = False,
 ) -> str:
     params = HouseNearbySearchInput(
@@ -315,7 +309,7 @@ def get_houses_nearby(
         page=page,
         page_size=page_size,
     ).model_dump(exclude_none=True)
-
+    detailed = False
     with _openapi_spec_path.open("r", encoding="utf-8") as fp:
         openapi_spec = json.load(fp)
     server = openapi_spec.get("servers", [{}])[0].get("url", "")
@@ -353,13 +347,13 @@ def get_houses_nearby(
 
 @mcp.tool(
     name="get_houses_by_community",
-    description="根据小区名分别调用三大平台（链家/安居客/58同城）的 get_houses_by_community 接口，并返回 {houseid, platforms} 列表。",
+    description="按小区名查询可租房源，默认会查询三大平台（链家/安居客/58同城）的所有符合条件的房源。",
 )
 def get_houses_by_community(
     community: Annotated[str, Field(description="小区名")],
     page: Annotated[int | None, Field(description="页码")] = 1,
     page_size: Annotated[int, Field(description="每页数量")] = 5,
-    detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
+    # detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
     final_answer: Annotated[
         bool,
         Field(description="当该次调用是用户请求的最终结果时，请填写true，该结果会直接提供给用户。"),
@@ -370,7 +364,7 @@ def get_houses_by_community(
         page=page,
         page_size=page_size,
     ).model_dump(exclude_none=True)
-
+    detailed = False
     with _openapi_spec_path.open("r", encoding="utf-8") as fp:
         openapi_spec = json.load(fp)
     server = openapi_spec.get("servers", [{}])[0].get("url", "")
@@ -454,10 +448,11 @@ class AgentTools:
             logger.exception("Failed to load OpenAPI tools from %s", _openapi_spec_path)
 
     async def _mcp_tools_async(self, allowed_tools: set[str] | None = None) -> list[dict[str, object]]:
+        if allowed_tools is not None and not allowed_tools:
+            return []
         tools = await mcp.list_tools()
-        allowed = {name.lower() for name in allowed_tools} if allowed_tools else None
-
-        return [
+        allowed = {name.lower() for name in allowed_tools} if allowed_tools is not None else None
+        tools = [
             {
                 "type": "function",
                 "function": {
@@ -469,6 +464,8 @@ class AgentTools:
             for tool in tools
             if allowed is None or tool.name.lower() in allowed
         ]
+        logger.info("MCP tools | %s", tools)
+        return tools
 
     async def langchain_tools(self, allowed_tools: set[str] | None = None) -> list[dict[str, object]]:
         return await self._mcp_tools_async(allowed_tools=allowed_tools)

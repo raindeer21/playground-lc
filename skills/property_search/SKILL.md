@@ -1,7 +1,7 @@
 ---
 name: property_search
 description: 按条件搜索/查看/对比房源与地标，输出候选 house_id。
-allowed-tools: get_houses_by_platform,get_houses_by_community,get_houses_nearby,get_house_by_id,get_house_listings,get_landmarks,get_landmark_by_name,search_landmarks,get_landmark_by_id,get_landmark_stats,get_house_stats,get_nearby_landmarks
+allowed-tools: search_house,get_houses_by_community,get_houses_near_landmark
 ---
 
 # Prompt
