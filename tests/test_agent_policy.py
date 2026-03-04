@@ -349,3 +349,145 @@ def test_chat_short_circuits_when_tool_call_sets_final_answer_true() -> None:
     assert len(response["steps"]) == 2
     assert response["steps"][0]["type"] == "tool_calls"
     assert response["steps"][1]["type"] == "tool_result"
+
+
+def test_select_skills_uses_tiny_agent_abstraction() -> None:
+    import logging
+
+    runtime = AgentRuntime.__new__(AgentRuntime)
+
+    class _DummySkillStore:
+        def headers(self):
+            return [
+                {"skill_id": "property_search", "name": "search", "description": ""},
+                {"skill_id": "landmark_search", "name": "landmark", "description": ""},
+            ]
+
+    captured: dict[str, object] = {}
+
+    async def _fake_tiny_agent(prompt, output_class):
+        captured["prompt"] = prompt
+        captured["output_class"] = output_class
+        return output_class(selected_skills=["property_search"])
+
+    runtime.skill_store = _DummySkillStore()
+    runtime._logger = logging.getLogger(__name__)
+    runtime.default_model = "qwen3-32b"
+    runtime.default_base_url = "http://api.openai.rnd.huawei.com/v1/"
+
+    selected = asyncio.run(
+        runtime._select_skills_for_request(
+            [{"role": "user", "content": "帮我找西二旗附近房子"}],
+            tiny_agent=_fake_tiny_agent,
+        )
+    )
+
+    assert selected == ["property_search"]
+    assert "request=帮我找西二旗附近房子" in str(captured["prompt"])
+    assert captured["output_class"].__name__ == "SelectedSkills"
+
+
+def test_run_tiny_agent_returns_structured_output() -> None:
+    import app.agent as agent_module
+
+    runtime = AgentRuntime.__new__(AgentRuntime)
+    runtime.default_model = "qwen3-32b"
+    runtime.default_base_url = "http://api.openai.rnd.huawei.com/v1/"
+
+    class _Output(BaseModel):
+        selected_skills: list[str] = Field(default_factory=list)
+
+    class _FakeStructuredLLM:
+        def __init__(self, output_class):
+            self._output_class = output_class
+
+        def invoke(self, _messages, config=None):
+            assert config is None
+            return self._output_class(selected_skills=["property_search"])
+
+    class _FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def with_structured_output(self, output_class):
+            return _FakeStructuredLLM(output_class)
+
+    original = agent_module.ChatOpenAI
+    agent_module.ChatOpenAI = _FakeChatOpenAI
+    try:
+        output = asyncio.run(runtime._run_tiny_agent(prompt="choose", output_class=_Output))
+    finally:
+        agent_module.ChatOpenAI = original
+
+    assert output.selected_skills == ["property_search"]
+
+
+def test_chat_passes_base_url_and_session_id_into_tiny_agent_runner() -> None:
+    import logging
+    import app.agent as agent_module
+    from langchain_core.messages import AIMessage
+
+    runtime = AgentRuntime.__new__(AgentRuntime)
+
+    class _DummySkillStore:
+        def tool_whitelist_for(self, _selected_skills):
+            return None
+
+    class _DummyLLM:
+        def invoke(self, _history, config=None):
+            return AIMessage(content='{"message":"ok","houses":[]}', tool_calls=[])
+
+    class _Output(BaseModel):
+        selected_skills: list[str] = Field(default_factory=list)
+
+    captured: dict[str, object] = {}
+
+    class _FakeStructuredLLM:
+        def __init__(self, output_class):
+            self._output_class = output_class
+
+        def invoke(self, _messages, config=None):
+            captured["invoke_config"] = config
+            return self._output_class(selected_skills=[])
+
+    class _FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured["chat_kwargs"] = kwargs
+
+        def with_structured_output(self, output_class):
+            captured["output_class"] = output_class
+            return _FakeStructuredLLM(output_class)
+
+    async def _fake_select_skills(messages, tiny_agent=None):
+        assert tiny_agent is not None
+        await tiny_agent("ping", _Output)
+        return []
+
+    original = agent_module.ChatOpenAI
+    agent_module.ChatOpenAI = _FakeChatOpenAI
+    try:
+        runtime.skill_store = _DummySkillStore()
+        runtime._logger = logging.getLogger(__name__)
+        runtime.default_model = "qwen3-32b"
+        runtime.default_base_url = "http://default.local/v1"
+        runtime.llm = _DummyLLM()
+        runtime.structured_llm = None
+        runtime.conversation_log_path = Path('/tmp/test_agent_conversations.jsonl')
+        runtime._select_skills_for_request = _fake_select_skills
+
+        response = asyncio.run(
+            runtime._chat(
+                [{"role": "user", "content": "hello"}],
+                max_steps=1,
+                base_url="http://custom.local/v1",
+                session_id="session-123",
+            )
+        )
+    finally:
+        agent_module.ChatOpenAI = original
+
+    assert response["message"] == "ok"
+    chat_kwargs = captured["chat_kwargs"]
+    assert chat_kwargs["base_url"] == "http://custom.local/v1"
+    assert chat_kwargs["model"] == "qwen3-32b"
+    assert captured["invoke_config"] == {"callbacks": [agent_module.langfuse_handler]}
