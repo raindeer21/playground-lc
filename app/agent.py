@@ -5,7 +5,8 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Optional
+from collections.abc import Awaitable, Callable
+from typing import Any, Optional, TypeVar
 
 import langfuse
 from langfuse._client.propagation import propagate_attributes
@@ -15,7 +16,6 @@ from pydantic import BaseModel, Field
 import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
-from sqlalchemy.util import await_only
 
 from app.runtime_base import BaseAgentRuntime
 from app.runtime_helpers import analyze_token_usage, compress_tool_result, extract_token_usage, trim_ai_message_for_history
@@ -40,6 +40,11 @@ class PropertyAnswer(BaseModel):
 
 class SelectedSkills(BaseModel):
     selected_skills: list[str] = Field(default_factory=list, description="Selected skill IDs")
+
+
+StructuredOutputT = TypeVar("StructuredOutputT", bound=BaseModel)
+TinyAgent = Callable[[str, type[StructuredOutputT]], Awaitable[StructuredOutputT]]
+
 
 class AgentRuntime(BaseAgentRuntime):
     def __init__(
@@ -116,10 +121,25 @@ class AgentRuntime(BaseAgentRuntime):
     ) -> dict[str, Any]:
         self._logger.info("Agent chat started | max_steps=%s | message_count=%s", max_steps, len(messages))
         self._logger.info("Incoming messages payload: %s", json.dumps(messages, ensure_ascii=False))
-        selected_skills = await self._select_skills_for_request(messages)
+        target_model = model or self.default_model
+
+        async def tiny_agent(prompt: str, output_class: type[StructuredOutputT]) -> StructuredOutputT:
+            client_headers = {"Session-ID": session_id} if session_id else None
+            tiny_llm = ChatOpenAI(
+                model=target_model,
+                http_client=httpx.Client(trust_env=False, headers=client_headers),
+                base_url=base_url or self.default_base_url,
+                api_key="sk-1234",
+                temperature=0,
+            ).with_structured_output(output_class)
+            return tiny_llm.invoke(
+                [HumanMessage(content=prompt)],
+                config={"callbacks": [langfuse_handler]},
+            )
+
+        selected_skills = await self._select_skills_for_request(messages, tiny_agent=tiny_agent)
         self._logger.info("skill_select result | selected_skills=%s", selected_skills)
 
-        target_model = model or self.default_model
         allowed_tools = self.skill_store.tool_whitelist_for(selected_skills)
 
         if model is None and session_id is None and base_url is None and not selected_skills:
@@ -322,7 +342,11 @@ class AgentRuntime(BaseAgentRuntime):
             )
         )
 
-    async def _select_skills_for_request(self, messages: list[dict[str, Any]]) -> list[Any] | list[str] | None:
+    async def _select_skills_for_request(
+        self,
+        messages: list[dict[str, Any]],
+        tiny_agent: TinyAgent | None = None,
+    ) -> list[Any] | list[str] | None:
         headers = self.skill_store.headers()
         if not headers:
             self._logger.info("skill_select skipped | reason=no_headers")
@@ -332,14 +356,6 @@ class AgentRuntime(BaseAgentRuntime):
         if not user_text:
             self._logger.info("skill_select skipped | reason=no_user_text")
             return []
-
-        selector_llm = ChatOpenAI(
-            model=self.default_model,
-            http_client=httpx.Client(trust_env=False),
-            base_url=self.default_base_url,
-            api_key="sk-1234",
-            temperature=0,
-        ).with_structured_output(SelectedSkills)
 
         prompt = (
             """你是skill选择器,请根据用户请求选择相关的skill，优先少选。\n"""
@@ -360,8 +376,8 @@ class AgentRuntime(BaseAgentRuntime):
         )
 
         try:
-            response: SelectedSkills = selector_llm.invoke([HumanMessage(content=prompt)],
-                                                           config={"callbacks": [langfuse_handler]})
+            run_tiny_agent = tiny_agent or self._run_tiny_agent
+            response = await run_tiny_agent(prompt, SelectedSkills)
             selected_skills = self._parse_selected_skill_ids(response.model_dump_json(), headers)
             # self._logger.info(
             #     "skill_select token_usage | %s",
@@ -380,6 +396,20 @@ class AgentRuntime(BaseAgentRuntime):
         except Exception:
             self._logger.exception("skill_select failed")
             return None
+
+    async def _run_tiny_agent(
+        self,
+        prompt: str,
+        output_class: type[StructuredOutputT],
+    ) -> StructuredOutputT:
+        tiny_llm = ChatOpenAI(
+            model=self.default_model,
+            http_client=httpx.Client(trust_env=False),
+            base_url=self.default_base_url,
+            api_key="sk-1234",
+            temperature=0,
+        ).with_structured_output(output_class)
+        return tiny_llm.invoke([HumanMessage(content=prompt)])
 
     @staticmethod
     def _latest_user_text(messages: list[dict[str, Any]]) -> str:
