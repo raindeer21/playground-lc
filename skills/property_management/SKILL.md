@@ -1,6 +1,6 @@
 ---
 name: property_management
-description: 执行租房、退租、下架等状态变更操作。
+description: 执行租房、退租、下架等状态变更操作，当用户明确指定要执行操作时，才使用该技能。
 allowed-tools: rent_house,terminate_rental,take_offline,get_house_by_id,get_house_listings
 ---
 

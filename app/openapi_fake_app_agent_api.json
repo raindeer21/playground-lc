@@ -12,51 +12,6 @@
         }
     ],
     "paths": {
-        "/api/landmarks": {
-            "get": {
-                "operationId": "get_landmarks",
-                "summary": "获取地标列表",
-                "description": "获取地标列表，支持 category、district 同时筛选（取交集）。用于查地铁站、公司、商圈等地标。不需 X-User-ID。",
-                "parameters": [
-                    {
-                        "name": "category",
-                        "in": "query",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "description": "地标类别：subway(地铁)/company(公司)/landmark(商圈等)，不传则不过滤"
-                        }
-                    },
-                    {
-                        "name": "district",
-                        "in": "query",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "description": "限定北京行政区划: 东城、西城、朝阳、丰台、石景山、海淀、门头沟、房山、大兴、通州、顺义、昌平、怀柔、平谷、密云、延庆"
-                        }
-                    }
-                ]
-            }
-        },
-        "/api/landmarks/name/{name}": {
-            "get": {
-                "operationId": "get_landmark_by_name",
-                "summary": "按名称精确查询地标",
-                "description": "必须先使用 search_landmarks 确认精准地标名称后，才能调用该接口，否则会失败。按名称精确查询地标，如西二旗站、百度。返回地标 id、经纬度等，用于后续 nearby 查房。不需 X-User-ID。",
-                "parameters": [
-                    {
-                        "name": "name",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "description": "地标名称，如 西二旗站、国贸"
-                        }
-                    }
-                ]
-            }
-        },
         "/api/landmarks/search": {
             "get": {
                 "operationId": "search_landmarks",
@@ -111,14 +66,6 @@
                 ]
             }
         },
-        "/api/landmarks/stats": {
-            "get": {
-                "operationId": "get_landmark_stats",
-                "summary": "获取地标统计信息",
-                "description": "获取地标统计信息（总数、按类别分布等）。不需 X-User-ID。",
-                "parameters": []
-            }
-        },
         "/api/houses/{house_id}": {
             "get": {
                 "operationId": "get_house_by_id",
@@ -155,7 +102,6 @@
                 ]
             }
         },
-
         "/api/houses/nearby_landmarks": {
             "get": {
                 "operationId": "get_nearby_landmarks",

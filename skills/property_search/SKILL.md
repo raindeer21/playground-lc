@@ -1,7 +1,7 @@
 ---
 name: property_search
-description: 按条件搜索/查看/对比房源与地标，输出候选 house_id。
-allowed-tools: search_house,get_houses_by_community,get_houses_near_landmark
+description: 按条件搜索/查看/对比可租赁的房源，只要上下文出现与房屋租赁、查询有关的，使用该技能。
+allowed-tools: search_landmarks,get_landmark_by_id,get_landmark_stats,search_house,get_houses_by_community,get_houses_near_landmark,get_nearby_landmarks,get_house_by_id,get_house_listings,get_house_stats
 ---
 
 # Prompt

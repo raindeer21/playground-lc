@@ -25,7 +25,6 @@ class SkillStore:
         self._logger.setLevel(logging.DEBUG)
         self.root = Path(root)
         self._skills = self._load_skills()
-        self._logger.info(f"Skills loaded: {self._skills}")
 
     def _load_skills(self) -> dict[str, Skill]:
         skills: dict[str, Skill] = {}
@@ -52,7 +51,6 @@ class SkillStore:
         return [
             {
                 "skill_id": skill.skill_id,
-                "name": skill.name,
                 "description": skill.description,
             }
             for skill in self._skills.values()

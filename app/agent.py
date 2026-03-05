@@ -42,6 +42,10 @@ class SelectedSkills(BaseModel):
     selected_skills: list[str] = Field(default_factory=list, description="Selected skill IDs")
 
 
+class Landmarks(BaseModel):
+    landmark_list: list[str] = Field(default_factory=list, description="地标名称列表")
+
+
 class LandmarkLookupRequest(BaseModel):
     names: list[str] = Field(default_factory=list, description="Landmark names to resolve")
 
@@ -121,6 +125,7 @@ class AgentRuntime(BaseAgentRuntime):
     ) -> TinyAgent:
         async def tiny_agent(prompt: str, output_class: type[StructuredOutputT]) -> StructuredOutputT:
             tiny_llm = llm_builder(model).with_structured_output(output_class)
+            # tiny_llm = llm_builder(model)
             config: dict[str, Any] | None = None
             if callbacks:
                 config = {"callbacks": callbacks}
@@ -210,35 +215,35 @@ class AgentRuntime(BaseAgentRuntime):
             callbacks=[langfuse_handler],
         )
 
-        selected_skills = await self._select_skills_for_request(messages, tiny_agent=tiny_agent)
-        self._logger.info("skill_select result | selected_skills=%s", selected_skills)
+        # selected_skills = await self._select_skills_for_request(messages, tiny_agent=tiny_agent)
+        # self._logger.info("skill_select result | selected_skills=%s", selected_skills)
+        # landmark_memory_entries = []
+        #
+        # if selected_skills:
+        #     landmark_memory_entries, effective_skills = await self._resolve_landmark_memories(
+        #         messages=messages,
+        #         selected_skills=selected_skills,
+        #         tiny_agent=tiny_agent,
+        #     )
 
-        landmark_memory_entries, effective_skills = await self._resolve_landmark_memories(
-            messages=messages,
-            selected_skills=selected_skills,
-            tiny_agent=tiny_agent,
-        )
+        effective_skills = None
+
         allowed_tools = self.skill_store.tool_whitelist_for(effective_skills)
-
-        if model is None and session_id is None and base_url is None and not effective_skills:
-            llm = self.llm
-            structured_llm = getattr(self, "structured_llm", None)
-        else:
-            llm = await self._build_llm(
-                model=target_model,
-                session_id=session_id,
-                base_url=base_url,
-                allowed_tools=allowed_tools,
-            )
-            structured_llm = await self._build_structured_llm(
-                model=target_model,
-                session_id=session_id,
-                base_url=base_url,
-                allowed_tools=allowed_tools,
-            )
+        llm = await self._build_llm(
+            model=target_model,
+            session_id=session_id,
+            base_url=base_url,
+            allowed_tools=allowed_tools,
+        )
+        structured_llm = await self._build_structured_llm(
+            model=target_model,
+            session_id=session_id,
+            base_url=base_url,
+            allowed_tools=allowed_tools,
+        )
 
         history: list[BaseMessage] = [self._system_message(selected_skills=effective_skills)]
-        history.extend(landmark_memory_entries)
+        # history.extend(landmark_memory_entries)
         history.extend(self._convert_messages(messages))
         return llm, structured_llm, history
 
@@ -399,10 +404,10 @@ class AgentRuntime(BaseAgentRuntime):
                 "- 你是租房方向的专业房产中介，专注于：找房 / 对比 / 租房 / 退租 / 下架。\n"
                 "- 你是专业的工作人员，需要简要且直接地回答问题，不要长篇大论，直接说结论（如：没有房源，有以下房源），不要给出额外建议。\n"
                 "事实规则（GROUND TRUTH）\n"
-                "- 当前年份：2026。"
+                "- 当前年份：2026。\n"
                 "- 房源ID全局唯一，相同的房源ID一定对应同一套房子，即使列在不同的平台上。\n"
-                "- 当用户以个数（“两套”、“三个” 等）或模糊指向请求时（“这套”，“那个” 等），如果事实存在的房源数目与请求不符合，按两者中更少的数目处理。"
-                "  可随机选择，不需要向用户确认\n\n"
+                "- 当用户以个数（“两套”、“三个” 等）或模糊指向请求时（“这套”，“那个” 等），如果事实存在的房源数目与请求不符合，直接按真实数目处理，不需要向用户确认\n"
+                "- 当用户提出更多要求筛选时，必须检查目前每个房子的信息。\n\n"
                 "核心目标（CORE GOAL）\n"
                 "- 在需要时使用工具，帮助用户搜索、对比房源，并执行租房/退租/下架等操作。\n\n"
                 "工具使用规则（TOOL USAGE RULE）\n"
@@ -415,7 +420,8 @@ class AgentRuntime(BaseAgentRuntime):
                 "- 提取明确约束：\n"
                 "  - 预算、区域/商圈、几居、整租/合租、通勤需求、设施/配套、入住时间、其他硬性要求。\n"
                 "  - search_house 调用仅包含**必须的要求**，“如果可以” “有的话更好” “最好有” 等可选条件不能包括。\n"
-                "- 若约束足够清晰 -> 立即搜索房源。\n"
+                "- 若用户提供任意条件时 -> 立即搜索房源。\n"
+                "- 如果可以 有的话更好 最好有 等可选条件 -> 同时搜索符合与不符合该条件的房源，优先选取符合的房源。\n"
                 # "- 对候选房源进行核验与对比维度：\n"
                 # "  - 通勤、性价比、配套/设施、风险/缺点。\n"
                 "2）状态变更意图（STATE-CHANGING）：租房 / 退租 / 下架\n"
@@ -452,14 +458,15 @@ class AgentRuntime(BaseAgentRuntime):
         if "landmark_search" not in selected:
             return [], selected
 
-        filtered_skills = [skill for skill in selected if skill != "landmark_search"]
+        filtered_skills = selected
         user_text = self._latest_user_text(messages)
         if not user_text:
             return [], filtered_skills
 
         prompt = (
-            "你是一个地标名称提取器。根据用户请求提取所有需要查询的地标名称。"
-            "仅返回 JSON，字段为 names（字符串数组）。若无法确定，返回空数组。"
+            "你是一个地标名称提取器。根据用户请求提取所有需要查询的地标名称，包含地名、商圈名等（不包含小区名、地铁站、地铁线名、行政区名）。"
+            "如果关键词如果出现行政区、市名，请给出分词版本和原版本。不要直接给出行政区、市名。"
+            "仅返回 JSON，若无法确定，返回空数组。严禁输出 JSON 以外的多余文字，仅输出纯 JSON，不要使用 markdown 代码块。"
             f"\nrequest={user_text}"
         )
 
@@ -493,7 +500,7 @@ class AgentRuntime(BaseAgentRuntime):
                     "name": "search_landmarks",
                     "args": {"name": resolved_name},
                 }
-                memory_entries.append(AIMessage(content="", tool_calls=[tool_call]))
+                memory_entries.append(AIMessage(content="\n\n", tool_calls=[tool_call]))
                 memory_entries.append(
                     ToolMessage(
                         content=json.dumps({"name": resolved_name, "id": landmark_id}, ensure_ascii=False),
@@ -503,6 +510,8 @@ class AgentRuntime(BaseAgentRuntime):
                 )
 
             self._logger.info("landmark memories resolved | entries=%s", len(memory_entries))
+            if memory_entries:
+                filtered_skills = [skill for skill in selected if skill != "landmark_search"]
             return memory_entries, filtered_skills
         except Exception:
             self._logger.exception("landmark memory resolve failed")
@@ -524,7 +533,10 @@ class AgentRuntime(BaseAgentRuntime):
             return []
 
         prompt = (
-            """你是skill选择器,请根据用户请求选择相关的skill，优先少选。\n"""
+            """你是skill选择器,请根据提供的对话，选择语义相关的skill。
+            示例输出：{"selected_skills": ["skill1", "skill2"]}。
+            严禁输出 JSON 以外的多余文字，不要使用 markdown 代码块。
+"""
             f"skills={json.dumps(headers, ensure_ascii=False)}\n"
             f"request={request_text}"
         )
@@ -542,9 +554,8 @@ class AgentRuntime(BaseAgentRuntime):
         )
 
         try:
-            run_tiny_agent = tiny_agent or self._run_tiny_agent
-            response = await run_tiny_agent(prompt, SelectedSkills)
-            selected_skills = self._parse_selected_skill_ids(response.model_dump_json(), headers)
+            response = await tiny_agent(prompt, SelectedSkills)
+            selected_skills = list({s for s in response.selected_skills})
             # self._logger.info(
             #     "skill_select token_usage | %s",
             #     json.dumps(extract_token_usage(response), ensure_ascii=False),
@@ -590,13 +601,15 @@ class AgentRuntime(BaseAgentRuntime):
                 continue
 
             content = message.get("content", "")
+            if role == "assistant":
+                content = json.loads(content).get("message")
             if isinstance(content, str):
                 normalized_content = content.strip()
             else:
                 normalized_content = str(content).strip()
 
             if normalized_content:
-                selected_messages.append(normalized_content)
+                selected_messages.append(f"{role}: {normalized_content}")
 
         return "\n".join(selected_messages)
 

@@ -249,6 +249,7 @@ def serialize_steps(history: list[BaseMessage], compressed: bool = False) -> lis
                     "content": content,
                     "tool_call_id": msg.tool_call_id,
                     "status": msg.status,
+                    "name": msg.name if msg.name else "",
                 }
             )
     return steps
