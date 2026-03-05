@@ -121,7 +121,7 @@ def _trim_old_tool_history(
             item["tool_calls"] = []
 
         is_tool_entry = role == "tool"
-        if is_tool_entry and current_user_index < keep_from_user_index:
+        if is_tool_entry and (current_user_index < keep_from_user_index) and (item.get("name") != "search_landmarks"):
             continue
         trimmed.append(item)
     return trimmed
@@ -247,6 +247,7 @@ def _build_history_entries(result: dict[str, Any]) -> list[dict[str, Any]]:
                     "role": "tool",
                     "content": str(step.get("content", "")),
                     "tool_call_id": step.get("tool_call_id", ""),
+                    "name": step.get("name", ""),
                 }
             )
     entries.append({"role": "assistant", "content": result.get("message", "")})

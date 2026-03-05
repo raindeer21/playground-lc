@@ -243,8 +243,7 @@ def search_landmarks(name: Annotated[str, Field(description="地标名称")]) ->
 
 @mcp.tool(
     name="search_house",
-    description="根据筛选条件搜索可租房源，默认获取三大平台（链家/安居客/58同城）的所有符合条件的房源。"
-                "填写条件时请仅包含**必须的要求**，“如果可以” “有的话更好” “最好有” 等可选条件不能包括。",
+    description="根据筛选条件搜索可租房源，默认获取三大平台（链家/安居客/58同城）的所有符合条件的房源。",
 )
 def search_house(
     district: Annotated[str | None, Field(description="仅支持以下北京行政区：朝阳、西城、海淀、东城、丰台、昌平、房山、通州、大兴、顺义")] = None,
@@ -254,23 +253,23 @@ def search_house(
     bedrooms: Annotated[str | None, Field(description="卧室数，多个可使用逗号分隔。如两到三居室：2,3")] = None,
     rental_type: Annotated[str | None, Field(description="支持：整租、合租")] = None,
     decoration: Annotated[str | None, Field(description="装修类型：精装、简装")] = None,
-    orientation: Annotated[str | None, Field(description="朝向：朝南、南北、朝北、朝西、东西、朝东、西北")] = None,
+    orientation: Annotated[str | None, Field(description="朝向，仅支持查询一种：朝南、南北、朝北、朝西、东西、朝东、西北")] = None,
     elevator: Annotated[str | None, Field(description="是否有电梯：true/false")] = None,
     min_area: Annotated[int | None, Field(description="最小面积（平米）")] = None,
     max_area: Annotated[int | None, Field(description="最大面积（平米）")] = None,
     property_type: Annotated[str | None, Field(description="物业类型：住宅、公寓")] = None,
     subway_line: Annotated[str | None, Field(description="地铁线路")] = None,
     max_subway_dist: Annotated[int | None, Field(description="最大地铁距离（米）")] = None,
-    subway_station: Annotated[str | None, Field(description="地铁站名，使用前必须通过地标搜索获取精准名称")] = None,
+    subway_station: Annotated[str | None, Field(description="地铁站名称，如北新桥站，必须带xx站")] = None,
     utilities_type: Annotated[str | None, Field(description="水电类型：民水民电、商水商电")] = None,
     available_from_before: Annotated[str | None, Field(description="可入住日期上限，YYYY-MM-DD")] = None,
     commute_to_xierqi_max: Annotated[int | None, Field(description="到西二旗通勤时间上限（分钟）")] = None,
     sort_by: Annotated[str | None, Field(description="排序字段：price/area/subway")] = None,
     sort_order: Annotated[str | None, Field(description="排序顺序：asc/desc")] = None,
     page: Annotated[int | None, Field(description="页码")] = 1,
-    page_size: Annotated[int, Field(description="每页数量")] = 5,
+    page_size: Annotated[int, Field(description="每页数量，请填写 5")] = 5,
     # detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
-    final_answer: Annotated[bool, Field(description="当该次调用是用户请求的最终结果时，请填写true，该结果会直接提供给用户。")] = False,
+    final_answer: Annotated[bool, Field(description="当该次调用是用户请求的最终结果时，请填写true")] = False,
 ) -> str:
     params = HouseSearchInput(
         district=district,
@@ -343,7 +342,7 @@ def get_houses_near_landmark(
     page: Annotated[int | None, Field(description="页码")] = 1,
     page_size: Annotated[int, Field(description="每页数量")] = 5,
     # detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
-    final_answer: Annotated[bool, Field(description="当该次调用是用户请求的最终结果时，请填写true，该结果会直接提供给用户。")] = False,
+    final_answer: Annotated[bool, Field(description="当该次调用是用户请求的最终结果时，请填写true")] = False,
 ) -> str:
     params = HouseNearbySearchInput(
         landmark_id=landmark_id,
@@ -396,10 +395,7 @@ def get_houses_by_community(
     page: Annotated[int | None, Field(description="页码")] = 1,
     page_size: Annotated[int, Field(description="每页数量")] = 5,
     # detailed: Annotated[bool, Field(description="是否返回HTTP接口完整结果；true时不裁剪")] = False,
-    final_answer: Annotated[
-        bool,
-        Field(description="当该次调用是用户请求的最终结果时，请填写true，该结果会直接提供给用户。"),
-    ] = False,
+    final_answer: Annotated[bool, Field(description="当该次调用是用户请求的最终结果时，请填写true")] = False,
 ) -> str:
     params = HouseCommunitySearchInput(
         community=community,
