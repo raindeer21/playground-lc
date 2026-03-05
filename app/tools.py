@@ -90,6 +90,25 @@ class LandmarkSearchInput(BaseModel):
     name: str = Field(..., description="地标名称")
 
 
+class GetHouseByIdInput(BaseModel):
+    house_id: str | None = Field(
+        default=None,
+        description="单个房源 ID。需要查询多套时优先使用 house_ids。",
+    )
+    house_ids: list[str] | None = Field(
+        default=None,
+        description="多个房源 ID 列表，可一次请求多套详情。",
+    )
+
+    @model_validator(mode="after")
+    def _validate_inputs(self) -> "GetHouseByIdInput":
+        if self.house_id is None and not self.house_ids:
+            raise ValueError("Provide house_id or house_ids")
+        if self.house_id is not None and self.house_ids:
+            raise ValueError("Provide either house_id or house_ids, not both")
+        return self
+
+
 def set_skill_store(skill_store: SkillStore) -> None:
     global _skill_store
     _skill_store = skill_store
@@ -438,9 +457,45 @@ def get_houses_by_community(
     return json.dumps(result, ensure_ascii=False)
 
 
+@mcp.tool(
+    name="get_house_by_id",
+    description="根据房源 ID 获取详情，支持单个 house_id 或批量 house_ids。",
+)
+def get_house_by_id(
+    house_id: Annotated[str | None, Field(description="单个房源ID，如 HF_2001")] = None,
+    house_ids: Annotated[list[str] | None, Field(description="多个房源ID列表，如 ['HF_2001', 'HF_2002']")] = None,
+    final_answer: Annotated[bool, Field(description="当该次调用是用户请求的最终结果时，请填写true")] = False,
+) -> str:
+    request = GetHouseByIdInput(house_id=house_id, house_ids=house_ids)
+    requested_ids = [request.house_id] if request.house_id is not None else request.house_ids or []
+
+    with _openapi_spec_path.open("r", encoding="utf-8") as fp:
+        openapi_spec = json.load(fp)
+    server = openapi_spec.get("servers", [{}])[0].get("url", "")
+
+    houses: list[dict[str, object]] = []
+    errors: list[dict[str, str]] = []
+
+    with httpx.Client(base_url=server, timeout=20, trust_env=False, headers={"X-User-ID": "d00640449"}) as client:
+        for current_house_id in requested_ids:
+            try:
+                response = client.get(f"/api/houses/{current_house_id}")
+                response.raise_for_status()
+                houses.append({"house_id": current_house_id, "result": response.json()})
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("get_house_by_id failed for house_id=%s", current_house_id)
+                errors.append({"house_id": current_house_id, "error": str(exc)})
+
+    result: dict[str, object] = {"houses": houses}
+    if errors:
+        result["errors"] = errors
+    return json.dumps(result, ensure_ascii=False)
+
+
 def _normalize_openapi_spec(spec: dict) -> dict:
     normalized = deepcopy(spec)
     normalized.get("paths", {}).pop("/api/landmarks/search", None)
+    normalized.get("paths", {}).pop("/api/houses/{house_id}", None)
     for path_item in normalized.get("paths", {}).values():
         for operation in path_item.values():
             if not isinstance(operation, dict):
