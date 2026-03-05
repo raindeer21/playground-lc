@@ -33,9 +33,14 @@ await parent_server.import_server(server=child_server, prefix="")
 ## Run
 
 ```bash
-pip install -r requirements.txt
+./run.sh
+```
+
+`run.sh` creates/uses `.venv`, installs `requirements.txt`, and starts the API server.
+
+```bash
 export OPENAI_API_KEY=...
-uvicorn app.main:app --reload
+HOST=0.0.0.0 PORT=8080 ./run.sh
 ```
 
 ## Example request
