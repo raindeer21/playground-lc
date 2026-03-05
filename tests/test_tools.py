@@ -424,3 +424,83 @@ def test_get_houses_by_community_detailed_returns_untrimmed_http_payloads(monkey
 
     assert "houses" not in payload
     assert payload["raw_results"][2] == {"platform": "58同城", "result": {"houses": [{"house_id": "C103", "floor": "11/22"}]}}
+
+
+def test_get_house_by_id_supports_single_house_id(monkeypatch) -> None:
+    from app.tools import get_house_by_id
+
+    captured_paths: list[str] = []
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class _DummyClient:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, path):
+            captured_paths.append(path)
+            return _Response({"house_id": "HF_2001", "title": "测试房源"})
+
+    monkeypatch.setattr("app.tools.httpx.Client", _DummyClient)
+
+    payload = json.loads(get_house_by_id(house_id="HF_2001"))
+
+    assert captured_paths == ["/api/houses/HF_2001"]
+    assert payload == {"houses": [{"house_id": "HF_2001", "result": {"house_id": "HF_2001", "title": "测试房源"}}]}
+
+
+def test_get_house_by_id_supports_multiple_house_ids(monkeypatch) -> None:
+    from app.tools import get_house_by_id
+
+    captured_paths: list[str] = []
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class _DummyClient:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, path):
+            captured_paths.append(path)
+            current_id = path.rsplit("/", 1)[-1]
+            return _Response({"house_id": current_id, "title": f"房源{current_id}"})
+
+    monkeypatch.setattr("app.tools.httpx.Client", _DummyClient)
+
+    payload = json.loads(get_house_by_id(house_ids=["HF_2001", "HF_2002"]))
+
+    assert captured_paths == ["/api/houses/HF_2001", "/api/houses/HF_2002"]
+    assert payload == {
+        "houses": [
+            {"house_id": "HF_2001", "result": {"house_id": "HF_2001", "title": "房源HF_2001"}},
+            {"house_id": "HF_2002", "result": {"house_id": "HF_2002", "title": "房源HF_2002"}},
+        ]
+    }
